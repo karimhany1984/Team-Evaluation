@@ -1210,6 +1210,10 @@ button, .nav-item, .nav-card, .qa-btn, .sec-nav-btn, .mobile-nav-btn, .hbtn {
             <span class="mn-icon">📈</span>
             <span class="mn-label">الملخص</span>
         </button>
+		<button class="mobile-nav-btn" id="mnReports" onclick="showReportsManager()">
+    <span class="mn-icon">📁</span>
+    <span class="mn-label">التقارير</span>
+</button>
     </nav>
 
     <!-- MODAL -->
@@ -2014,7 +2018,632 @@ button, .nav-item, .nav-card, .qa-btn, .sec-nav-btn, .mobile-nav-btn, .hbtn {
 "physio__31": 934
         };
         const SECTION_ROWS_MAP = { "general": 74, "policies": 80, "protocols": 87, "committees": 92, "medical_records": 103, "registers": 107, "consents": 111, "icu": 154, "er": 195, "or_room": 212, "or": 261, "recovery": 278, "endoscopy": 299, "cath": 326, "nicu": 372, "dialysis": 414, "burns": 431, "outpatient": 453, "inpatient": 479, "oncology": 522, "telehealth": 531, "isolation": 540, "pharmacy": 556, "lab": 633, "radiology": 676, "blood_bank": 714, "sterilization": 750, "laundry": 778, "kitchen": 804, "morgue": 821, "waste": 834, "admin": 872, "staff_housing": 879, "customer_voice": 896, "physio": 935 };
-                const FORM_DATA = [
+        // ═══════════════════════════════════════════════════════════════
+// INDEXEDDB DATABASE LAYER - Persistent Storage
+// ═══════════════════════════════════════════════════════════════
+
+const DB_NAME = 'HospitalInspectionsDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'inspection_reports';
+
+// Open database connection
+function openDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                // Create store with 'id' as auto-generated key
+                const store = db.createObjectStore(STORE_NAME, { 
+                    keyPath: 'id', 
+                    autoIncrement: true 
+                });
+                // Create indexes for searching
+                store.createIndex('hospitalName', 'hospitalName', { unique: false });
+                store.createIndex('inspectionDate', 'inspectionDate', { unique: false });
+                store.createIndex('savedAt', 'savedAt', { unique: false });
+                store.createIndex('totalScore', 'totalScore', { unique: false });
+            }
+        };
+    });
+}
+
+// Save current inspection to database
+async function saveToDatabase(recordName = null) {
+    // Get current data
+    const inspectionData = {
+        // Metadata
+        hospitalName: meta.hospitalName || '',
+        governorate: meta.governorate || 'الاسكندرية',
+        type: meta.type || '',
+        inspectors: meta.inspectors || '',
+        inspectionDate: meta.dates || '',
+        
+        // Scores and notes
+        scores: { ...scores },
+        notes: { ...notes },
+        
+        // Calculated totals
+        totalEarned: 0,
+        totalMax: 0,
+        percentage: 0,
+        
+        // Timestamps
+        savedAt: new Date().toISOString(),
+        recordName: recordName || `${meta.hospitalName || 'تقرير'}_${meta.dates || new Date().toISOString().slice(0, 10)}`
+    };
+    
+    // Calculate totals
+    let grandEarned = 0, grandMax = 0;
+    FORM_DATA.forEach(sec => {
+        const { earned, effectiveMax } = getSectionScore(sec.key);
+        grandEarned += earned;
+        grandMax += effectiveMax;
+    });
+    inspectionData.totalEarned = grandEarned;
+    inspectionData.totalMax = grandMax;
+    inspectionData.percentage = grandMax > 0 ? Math.round(grandEarned / grandMax * 100) : 0;
+    
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.add(inspectionData);
+        
+        request.onsuccess = () => {
+            showToast('✓ تم حفظ التقرير في قاعدة البيانات');
+            resolve(request.result);
+        };
+        request.onerror = () => reject(request.error);
+        transaction.oncomplete = () => db.close();
+    });
+}
+
+// Load inspection from database by ID
+async function loadFromDatabase(id) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(id);
+        
+        request.onsuccess = () => {
+            db.close();
+            if (request.result) {
+                // Restore data to current session
+                const data = request.result;
+                meta.hospitalName = data.hospitalName;
+                meta.governorate = data.governorate;
+                meta.type = data.type;
+                meta.inspectors = data.inspectors;
+                meta.dates = data.inspectionDate;
+                scores = data.scores || {};
+                notes = data.notes || {};
+                
+                updateMetaResult();
+                buildSidebarNav();
+                updateProgress();
+                showHome();
+                showToast(`✓ تم تحميل: ${data.recordName}`);
+                resolve(data);
+            } else {
+                reject(new Error('السجل غير موجود'));
+            }
+        };
+        request.onerror = () => reject(request.error);
+    });
+}
+
+// Update existing inspection by ID (replace)
+async function updateInDatabase(id) {
+    // Get current data
+    let grandEarned = 0, grandMax = 0;
+    FORM_DATA.forEach(sec => {
+        const { earned, effectiveMax } = getSectionScore(sec.key);
+        grandEarned += earned;
+        grandMax += effectiveMax;
+    });
+    
+    const inspectionData = {
+        id: id,
+        hospitalName: meta.hospitalName || '',
+        governorate: meta.governorate || 'الاسكندرية',
+        type: meta.type || '',
+        inspectors: meta.inspectors || '',
+        inspectionDate: meta.dates || '',
+        scores: { ...scores },
+        notes: { ...notes },
+        totalEarned: grandEarned,
+        totalMax: grandMax,
+        percentage: grandMax > 0 ? Math.round(grandEarned / grandMax * 100) : 0,
+        savedAt: new Date().toISOString(),
+        recordName: `${meta.hospitalName || 'تقرير'}_${meta.dates || new Date().toISOString().slice(0, 10)}`
+    };
+    
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.put(inspectionData);
+        
+        request.onsuccess = () => {
+            showToast('✓ تم تحديث التقرير');
+            resolve(request.result);
+        };
+        request.onerror = () => reject(request.error);
+        transaction.oncomplete = () => db.close();
+    });
+}
+
+// Get all saved reports (with pagination)
+async function getAllReports(limit = 50, offset = 0) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const index = store.index('savedAt');
+        const reports = [];
+        let count = 0;
+        
+        const request = index.openCursor(null, 'prev'); // newest first
+        
+        request.onsuccess = (event) => {
+            const cursor = event.target.result;
+            if (cursor && count < offset + limit) {
+                if (count >= offset) {
+                    reports.push({
+                        id: cursor.value.id,
+                        recordName: cursor.value.recordName,
+                        hospitalName: cursor.value.hospitalName,
+                        inspectionDate: cursor.value.inspectionDate,
+                        totalEarned: cursor.value.totalEarned,
+                        totalMax: cursor.value.totalMax,
+                        percentage: cursor.value.percentage,
+                        savedAt: cursor.value.savedAt
+                    });
+                }
+                count++;
+                cursor.continue();
+            } else {
+                db.close();
+                resolve(reports);
+            }
+        };
+        request.onerror = () => reject(request.error);
+    });
+}
+
+// Delete report from database
+async function deleteFromDatabase(id) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.delete(id);
+        
+        request.onsuccess = () => {
+            showToast('✓ تم حذف التقرير');
+            resolve();
+        };
+        request.onerror = () => reject(request.error);
+        transaction.oncomplete = () => db.close();
+    });
+}
+
+// Search reports by criteria
+async function searchReports(criteria) {
+    const db = await openDB();
+    const allReports = await getAllReports(1000, 0);
+    db.close();
+    
+    return allReports.filter(report => {
+        if (criteria.hospitalName && !report.hospitalName.includes(criteria.hospitalName)) return false;
+        if (criteria.dateFrom && report.inspectionDate < criteria.dateFrom) return false;
+        if (criteria.dateTo && report.inspectionDate > criteria.dateTo) return false;
+        if (criteria.minPercentage && report.percentage < criteria.minPercentage) return false;
+        return true;
+    });
+}
+
+// Import Excel with conflict resolution
+async function importExcelWithOptions(file, importMode = 'new') {
+    // Mode: 'new' = add as new record, 'replace' = replace current, 'merge' = merge into current
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const files = await zipRead(buf);
+    const sheet = new TextDecoder().decode(files['xl/worksheets/sheet1.xml']);
+    const ss_xml = new TextDecoder().decode(files['xl/sharedStrings.xml']);
+    
+    // Parse shared strings
+    const ssItems = [];
+    ss_xml.replace(/<si>([\s\S]*?)<\/si>/g, (m, inner) => {
+        let txt = '';
+        inner.replace(/<t[^>]*>([^<]*)<\/t>/g, (_, t) => { txt += t; });
+        ssItems.push(txt.trim());
+    });
+    
+    // Read metadata from sheet2
+    const sheet2_xml = new TextDecoder().decode(files['xl/worksheets/sheet2.xml']);
+    const readSheetCell = (sheetXml, sharedStrings, cellRef) => {
+        const re = new RegExp('<c\\s[^>]*r="' + cellRef + '"[^>]*>[\\s\\S]*?<\/c>');
+        const m = sheetXml.match(re);
+        if (!m) return '';
+        const xml = m[0];
+        const v = xml.match(/<v>([^<]*)<\/v>/);
+        if (!v) return '';
+        if (/\bt="s"/.test(xml)) return sharedStrings[parseInt(v[1])] || '';
+        if (/\bt="str"/.test(xml)) return v[1];
+        return v[1];
+    };
+    
+    const importedMeta = {
+        dates: readSheetCell(sheet2_xml, ssItems, 'F1'),
+        hospitalName: readSheetCell(sheet2_xml, ssItems, 'D2'),
+        inspectors: readSheetCell(sheet2_xml, ssItems, 'F2'),
+        type: readSheetCell(sheet2_xml, ssItems, 'D3')
+    };
+    
+    // Read scores
+    const importedScores = {};
+    const importedNotes = {};
+    
+    FORM_DATA.forEach(sec => {
+        let idx = 0;
+        sec.subsections.forEach(sub => sub.items.forEach(() => {
+            const mapKey = sec.key + '__' + idx;
+            const exRow = ROW_MAP[mapKey];
+            if (exRow) {
+                const cRe = new RegExp('<c\\s[^>]*r="C' + exRow + '"(?=[">/ ])[^>]*>(?:(?!<\/row>)[\\s\\S])*?<\/c>');
+                const cM = sheet.match(cRe);
+                if (cM) {
+                    const vM = cM[0].match(/<v>([^<]*)<\/v>/);
+                    if (vM) {
+                        let val = vM[1].trim();
+                        if (/\bt="s"/.test(cM[0])) {
+                            const si = parseInt(val);
+                            if (!isNaN(si) && ssItems[si] !== undefined) val = ssItems[si];
+                        }
+                        if (val === 'N/A') importedScores[mapKey] = 'N/A';
+                        else if (val === '0' || val === '0.0') importedScores[mapKey] = 0;
+                        else if (val === '1' || val === '1.0') importedScores[mapKey] = 1;
+                        else if (val === '2' || val === '2.0') importedScores[mapKey] = 2;
+                    }
+                }
+                const dRe = new RegExp('<c\\s[^>]*r="D' + exRow + '"(?=[">/ ])[^>]*>(?:(?!<\/row>)[\\s\\S])*?<\/c>');
+                const dM = sheet.match(dRe);
+                if (dM) {
+                    const vM = dM[0].match(/<v>([^<]*)<\/v>/);
+                    if (vM && vM[1].trim()) {
+                        if (/\bt="s"/.test(dM[0])) {
+                            const si = parseInt(vM[1].trim());
+                            if (!isNaN(si) && ssItems[si]) importedNotes[mapKey] = ssItems[si];
+                        } else {
+                            importedNotes[mapKey] = vM[1].trim();
+                        }
+                    }
+                }
+            }
+            idx++;
+        }));
+    });
+    
+    if (importMode === 'replace') {
+        // Replace current session with imported data
+        meta.hospitalName = importedMeta.hospitalName;
+        meta.dates = importedMeta.dates;
+        meta.inspectors = importedMeta.inspectors;
+        meta.type = importedMeta.type;
+        scores = importedScores;
+        notes = importedNotes;
+        updateMetaResult();
+        saveToLocal();
+        buildSidebarNav();
+        updateProgress();
+        showHome();
+        showToast('✓ تم استبدال البيانات الحالية');
+    } else if (importMode === 'merge') {
+        // Merge: keep existing scores, only fill empty ones
+        Object.keys(importedScores).forEach(k => {
+            if (scores[k] === undefined) {
+                scores[k] = importedScores[k];
+            }
+        });
+        Object.keys(importedNotes).forEach(k => {
+            if (!notes[k] && importedNotes[k]) {
+                notes[k] = importedNotes[k];
+            }
+        });
+        updateMetaResult();
+        saveToLocal();
+        buildSidebarNav();
+        updateProgress();
+        showHome();
+        showToast('✓ تم دمج البيانات الجديدة');
+    } else { // 'new' - save as new record
+        // Save to database as new record
+        const tempMeta = { ...meta };
+        const tempScores = { ...scores };
+        const tempNotes = { ...notes };
+        
+        meta.hospitalName = importedMeta.hospitalName;
+        meta.dates = importedMeta.dates;
+        meta.inspectors = importedMeta.inspectors;
+        meta.type = importedMeta.type;
+        scores = importedScores;
+        notes = importedNotes;
+        
+        await saveToDatabase();
+        
+        // Restore original
+        meta = tempMeta;
+        scores = tempScores;
+        notes = tempNotes;
+        updateMetaResult();
+        showToast('✓ تم استيراد التقرير كسجل جديد');
+    }
+    
+    return { importedMeta, importedScores, importedNotes };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// REPORTS MANAGEMENT UI
+// ─────────────────────────────────────────────────────────────────
+
+function showReportsManager() {
+    currentSection = 'reports';
+    document.getElementById('mnHome')?.classList.remove('active');
+    document.getElementById('mnSummary')?.classList.remove('active');
+    
+    renderReportsList();
+}
+
+async function renderReportsList() {
+    const reports = await getAllReports();
+    const mainContent = document.getElementById('mainContent');
+    
+    if (reports.length === 0) {
+        mainContent.innerHTML = `
+            <div class="section-view">
+                <div class="section-title-bar">
+                    <div class="stb-icon">📁</div>
+                    <div class="stb-text">
+                        <h2>التقارير المحفوظة</h2>
+                        <p>لا توجد تقارير محفوظة حالياً</p>
+                    </div>
+                </div>
+                <div class="quick-actions">
+                    <button class="qa-btn" onclick="showHome()">🏠 العودة للرئيسية</button>
+                    <button class="qa-btn green" onclick="saveCurrentToDatabase()">💾 حفظ التقرير الحالي</button>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    let reportsHtml = `
+        <div class="section-view">
+            <div class="section-title-bar">
+                <div class="stb-icon">📁</div>
+                <div class="stb-text">
+                    <h2>التقارير المحفوظة</h2>
+                    <p>${reports.length} تقرير محفوظ</p>
+                </div>
+            </div>
+            <div class="quick-actions">
+                <button class="qa-btn" onclick="showHome()">🏠 العودة للرئيسية</button>
+                <button class="qa-btn green" onclick="saveCurrentToDatabase()">💾 حفظ التقرير الحالي</button>
+                <button class="qa-btn" onclick="exportAllReports()">📦 تصدير جميع التقارير</button>
+            </div>
+            <div class="sum-grid" style="grid-template-columns:1fr;">
+    `;
+    
+    for (const report of reports) {
+        const percentage = report.percentage || 0;
+        const fillColor = percentage >= 80 ? 'var(--green)' : percentage >= 50 ? 'var(--orange)' : percentage > 0 ? 'var(--red)' : 'var(--border)';
+        const dateObj = new Date(report.savedAt);
+        const savedDate = dateObj.toLocaleDateString('ar-EG');
+        
+        reportsHtml += `
+            <div class="sum-card" style="padding:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <div style="flex:1;">
+                        <div style="font-weight:800; font-size:14px; color:var(--primary);">${escapeHtml(report.recordName || 'تقرير')}</div>
+                        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+                            🏥 ${escapeHtml(report.hospitalName || '—')} · 📅 ${report.inspectionDate || '—'}
+                        </div>
+                        <div style="font-size:11px; color:var(--text-dim); margin-top:2px;">
+                            💾 حفظ: ${savedDate}
+                        </div>
+                    </div>
+                    <div style="text-align:center; min-width:80px;">
+                        <div style="font-size:22px; font-weight:900; color:var(--primary);">${report.totalEarned || 0}</div>
+                        <div style="font-size:10px; color:var(--text-muted);">من ${report.totalMax || 0}</div>
+                        <div style="font-size:14px; font-weight:700; color:${fillColor};">${percentage}%</div>
+                    </div>
+                    <div class="quick-actions" style="margin:0; width:auto; gap:6px;">
+                        <button class="qa-btn" style="min-width:70px;" onclick="loadAndViewReport(${report.id})">📂 فتح</button>
+                        <button class="qa-btn" style="min-width:70px;" onclick="exportSingleReport(${report.id})">📥 تصدير</button>
+                        <button class="qa-btn" style="min-width:70px; border-color:var(--red); color:var(--red);" onclick="confirmDeleteReport(${report.id})">🗑 حذف</button>
+                    </div>
+                </div>
+                <div class="sum-bar" style="margin-top:12px;"><div class="sum-bar-fill" style="width:${percentage}%; background:${fillColor};"></div></div>
+            </div>
+        `;
+    }
+    
+    reportsHtml += `</div></div>`;
+    mainContent.innerHTML = reportsHtml;
+}
+
+async function loadAndViewReport(id) {
+    await loadFromDatabase(id);
+    showHome();
+}
+
+async function exportSingleReport(id) {
+    const db = await openDB();
+    const report = await new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(id);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+    db.close();
+    
+    if (report) {
+        // Temporarily swap current data with report data
+        const tempMeta = { ...meta };
+        const tempScores = { ...scores };
+        const tempNotes = { ...notes };
+        
+        meta = { ...report };
+        scores = report.scores || {};
+        notes = report.notes || {};
+        
+        await exportExcel();
+        
+        // Restore
+        meta = tempMeta;
+        scores = tempScores;
+        notes = tempNotes;
+    }
+}
+
+function confirmDeleteReport(id) {
+    openModal('حذف التقرير', 'هل أنت متأكد من حذف هذا التقرير؟ لا يمكن التراجع عن هذا الإجراء.', async () => {
+        await deleteFromDatabase(id);
+        renderReportsList();
+    });
+}
+
+async function saveCurrentToDatabase() {
+    const recordName = prompt('أدخل اسم للتقرير (اختياري):', `${meta.hospitalName || 'تقرير'}_${meta.dates || new Date().toISOString().slice(0, 10)}`);
+    await saveToDatabase(recordName);
+    if (currentSection === 'reports') {
+        renderReportsList();
+    }
+}
+
+async function exportAllReports() {
+    const reports = await getAllReports();
+    if (reports.length === 0) {
+        showToast('لا توجد تقارير للتصدير');
+        return;
+    }
+    
+    // Create a downloadable JSON export
+    const exportData = {
+        exportedAt: new Date().toISOString(),
+        reportCount: reports.length,
+        reports: reports,
+        fullData: await Promise.all(reports.map(async (r) => {
+            const db = await openDB();
+            const full = await new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.get(r.id);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+            db.close();
+            return full;
+        }))
+    };
+    
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `all_reports_${new Date().toISOString().slice(0, 19)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`✓ تم تصدير ${reports.length} تقرير`);
+}
+
+// Enhanced merge modal for Excel import with options
+function showEnhancedImportOptions(file) {
+    const modal = document.createElement('div');
+    modal.id = 'importOptionsModal';
+    modal.style.cssText = 'position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.5);';
+    modal.innerHTML = `
+        <div style="background:#fff; border-radius:14px; padding:24px; width:min(400px,90vw); direction:rtl;">
+            <h3 style="margin:0 0 8px 0; font-size:16px; font-weight:800;">📂 استيراد ملف Excel</h3>
+            <p style="margin:0 0 20px 0; font-size:13px; color:#666;">كيف تريد معالجة هذا الملف؟</p>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <button id="importNewBtn" style="padding:12px; border:1.5px solid #1a6faf; background:#e8f2fb; border-radius:8px; font-weight:700; cursor:pointer;">➕ إضافة كتقرير جديد</button>
+                <button id="importReplaceBtn" style="padding:12px; border:1.5px solid #e8a020; background:#fef3dc; border-radius:8px; font-weight:700; cursor:pointer;">🔄 استبدال البيانات الحالية</button>
+                <button id="importMergeBtn" style="padding:12px; border:1.5px solid #1a8a4a; background:#e3f5eb; border-radius:8px; font-weight:700; cursor:pointer;">🔗 دمج مع البيانات الحالية</button>
+                <button id="importCancelBtn" style="padding:12px; border:1.5px solid #ccc; background:#f5f5f5; border-radius:8px; cursor:pointer;">إلغاء</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    const closeModal = () => modal.remove();
+    
+    document.getElementById('importNewBtn').onclick = async () => {
+        closeModal();
+        showToast('جاري الاستيراد كتقرير جديد...');
+        await importExcelWithOptions(file, 'new');
+    };
+    document.getElementById('importReplaceBtn').onclick = async () => {
+        closeModal();
+        showToast('جاري استبدال البيانات...');
+        await importExcelWithOptions(file, 'replace');
+    };
+    document.getElementById('importMergeBtn').onclick = async () => {
+        closeModal();
+        showToast('جاري دمج البيانات...');
+        await importExcelWithOptions(file, 'merge');
+    };
+    document.getElementById('importCancelBtn').onclick = closeModal;
+}
+
+// Override the existing file upload handler to show options
+const originalHandleFileUpload = handleFileUpload;
+window.handleFileUpload = async function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    showEnhancedImportOptions(file);
+    event.target.value = '';
+};
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
+}
+
+// Add navigation button for Reports Manager
+// Add this to your buildSidebarNav function
+const originalBuildSidebarNav = buildSidebarNav;
+window.buildSidebarNav = function() {
+    originalBuildSidebarNav();
+    const sidebarNav = document.getElementById('sidebarNav');
+    if (sidebarNav && !document.getElementById('nav-reports')) {
+        const reportsItem = document.createElement('div');
+        reportsItem.className = `nav-item ${currentSection === 'reports' ? 'active' : ''}`;
+        reportsItem.id = 'nav-reports';
+        reportsItem.onclick = () => { showReportsManager(); closeSidebar(); };
+        reportsItem.innerHTML = `
+            <div class="nav-icon">📁</div>
+            <div class="nav-text"><div class="nav-title">التقارير المحفوظة</div><div class="nav-sub">إدارة السجلات</div></div>
+        `;
+        sidebarNav.appendChild(reportsItem);
+    }
+};       
+		const FORM_DATA = [
   {
     "key": "general",
     "title": "الإشتراطات العامة",
