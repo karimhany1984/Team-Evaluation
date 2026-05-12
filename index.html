@@ -2216,7 +2216,21 @@ async function getAllReports(limit = 50, offset = 0) {
         request.onerror = () => reject(request.error);
     });
 }
-
+async function findDuplicateReport(hospitalName, inspectionDate) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const index = store.index('hospitalName');
+        const request = index.getAll(hospitalName);
+        request.onsuccess = () => {
+            const matches = request.result.filter(r => r.inspectionDate === inspectionDate);
+            db.close();
+            resolve(matches.length > 0 ? matches[0] : null);
+        };
+        request.onerror = () => reject(request.error);
+    });
+}
 // Delete report from database
 async function deleteFromDatabase(id) {
     const db = await openDB();
@@ -2694,10 +2708,27 @@ function confirmDeleteReport(id) {
 }
 
 async function saveCurrentToDatabase() {
-    const recordName = prompt('أدخل اسم للتقرير (اختياري):', `${meta.hospitalName || 'تقرير'}_${meta.dates || new Date().toISOString().slice(0, 10)}`);
-    await saveToDatabase(recordName);
+    const hospitalName = meta.hospitalName || '';
+    const inspectionDate = meta.dates || '';
+    if (!hospitalName || !inspectionDate) {
+        showToast('يرجى إدخال اسم المستشفى وتاريخ التقييم قبل الحفظ');
+        return;
+    }
+    const existing = await findDuplicateReport(hospitalName, inspectionDate);
+    if (existing) {
+        const confirmUpdate = confirm(`يوجد تقرير سابق لنفس المستشفى والتاريخ (${existing.recordName}). هل تريد استبداله؟`);
+        if (confirmUpdate) {
+            await updateInDatabase(existing.id);
+            showToast('✓ تم تحديث التقرير الموجود');
+        } else {
+            showToast('تم الإلغاء');
+        }
+    } else {
+        const recordName = prompt('أدخل اسم للتقرير (اختياري):', `${hospitalName}_${inspectionDate}`);
+        await saveToDatabase(recordName);
+    }
     if (currentSection === 'reports') {
-        renderReportsList();
+        renderReportsList(currentReportFilters);
     }
 }
 
