@@ -1,9 +1,9 @@
 {
-  "name": "نموذج متابعة المستشفيات",
-  "short_name": "متابعة المديريات",
-  "description": "إدارة متابعة المديريات - مديرية الشئون الصحية بالاسكندرية",
-  "start_url": "https://karimhany1984.github.io/trial/index.html",
-  "scope": "https://karimhany1984.github.io/trial/",
+  "name": "نموذج متابعةالمستشفيات",
+  "short_name": "متابعةالمستشفيات",
+  "description": "إدارة متابعة المديريات - نموذج متابعةالمستشفيات",
+  "start_url": "https://karimhany1984.github.io/hospital-form/index.html",
+  "scope": "https://karimhany1984.github.io/hospital-form/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#1a6faf",
@@ -21,5 +21,24 @@
       "sizes": "512x512",
       "type": "image/png"
     }
-  ]
+  ],
+  "share_target": {
+    "action": "/hospital-form/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "file",
+          "accept": [
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-excel",
+            "application/octet-stream",
+            ".xlsx",
+            ".xls"
+          ]
+        }
+      ]
+    }
+  }
 }
