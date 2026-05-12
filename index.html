@@ -1212,7 +1212,7 @@ button, .nav-item, .nav-card, .qa-btn, .sec-nav-btn, .mobile-nav-btn, .hbtn {
         </button>
 		<button class="mobile-nav-btn" id="mnReports" onclick="showReportsManager()">
     <span class="mn-icon">📁</span>
-    <span class="mn-label">التقارير</span>
+    <span class="mn-label">Database</span>
 </button>
     </nav>
 
@@ -2894,7 +2894,7 @@ window.buildSidebarNav = function() {
         reportsItem.onclick = () => { showReportsManager(); closeSidebar(); };
         reportsItem.innerHTML = `
             <div class="nav-icon">📁</div>
-            <div class="nav-text"><div class="nav-title">التقارير المحفوظة</div><div class="nav-sub">إدارة السجلات</div></div>
+            <div class="nav-text"><div class="nav-title">قاعدة البيانات</div><div class="nav-sub">إدارة السجلات</div></div>
         `;
         sidebarNav.appendChild(reportsItem);
     }
