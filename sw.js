@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trial-dynamic-v34';
+const CACHE_NAME = 'trial-dynamic-v35';
 const BASE = '/trial/';  // Match your GitHub Pages repo name
 
 // Files that MUST be available offline immediately
