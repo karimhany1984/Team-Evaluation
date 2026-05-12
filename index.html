@@ -2396,16 +2396,131 @@ function showReportsManager() {
     currentSection = 'reports';
     document.getElementById('mnHome')?.classList.remove('active');
     document.getElementById('mnSummary')?.classList.remove('active');
-	document.getElementById('mnReports')?.classList.add('active');
-	currentSection = 'reports';
-    renderReportsList();
+    if (document.getElementById('mnReports')) {
+        document.getElementById('mnReports').classList.add('active');
+    }
+    renderReportsList(currentReportFilters);
 }
-
-async function renderReportsList() {
-    const reports = await getAllReports();
+function getMonthName(month) {
+    const names = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    return names[month-1];
+}
+async function renderReportsList(filters = { hospitalName: '', year: '', month: '' }) {
+    // Store the current filters globally (so we can reuse them after delete/export)
+    currentReportFilters = filters;
+    
+    const allReports = await getAllReports();
+    
+    // ─── Extract unique values for dropdowns ───────────────────────────
+    const hospitalsSet = new Set();
+    const yearsSet = new Set();
+    const monthsSet = new Set();
+    
+    allReports.forEach(report => {
+        if (report.hospitalName && report.hospitalName.trim()) {
+            hospitalsSet.add(report.hospitalName.trim());
+        }
+        const dateStr = report.inspectionDate;
+        if (dateStr) {
+            let year = null, month = null;
+            // Try ISO format: YYYY-MM-DD
+            const isoMatch = dateStr.match(/^(\d{4})-(\d{2})-\d{2}$/);
+            if (isoMatch) {
+                year = isoMatch[1];
+                month = parseInt(isoMatch[2], 10);
+            } else {
+                // Try DD/MM/YYYY
+                const dmyMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+                if (dmyMatch) {
+                    year = dmyMatch[3];
+                    month = parseInt(dmyMatch[2], 10);
+                } else {
+                    // Fallback: try Date parsing
+                    const d = new Date(dateStr);
+                    if (!isNaN(d)) {
+                        year = d.getFullYear();
+                        month = d.getMonth() + 1;
+                    }
+                }
+            }
+            if (year) yearsSet.add(year);
+            if (month) monthsSet.add(month);
+        }
+    });
+    
+    const hospitalsList = Array.from(hospitalsSet).sort();
+    const yearsList = Array.from(yearsSet).sort().reverse();  // newest first
+    const monthsList = Array.from(monthsSet).sort((a,b) => a-b);
+    
+    // ─── Apply selected filters ───────────────────────────────────────
+    const filteredReports = allReports.filter(report => {
+        if (filters.hospitalName && report.hospitalName !== filters.hospitalName) return false;
+        
+        if (filters.year || filters.month) {
+            const dateStr = report.inspectionDate;
+            if (!dateStr) return false;
+            let year = null, month = null;
+            const isoMatch = dateStr.match(/^(\d{4})-(\d{2})-\d{2}$/);
+            if (isoMatch) {
+                year = isoMatch[1];
+                month = parseInt(isoMatch[2], 10);
+            } else {
+                const dmyMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+                if (dmyMatch) {
+                    year = dmyMatch[3];
+                    month = parseInt(dmyMatch[2], 10);
+                } else {
+                    const d = new Date(dateStr);
+                    if (!isNaN(d)) {
+                        year = d.getFullYear();
+                        month = d.getMonth() + 1;
+                    }
+                }
+            }
+            if (filters.year && year != filters.year) return false;
+            if (filters.month && month != filters.month) return false;
+        }
+        return true;
+    });
+    
+    // ─── Build the UI ─────────────────────────────────────────────────
     const mainContent = document.getElementById('mainContent');
     
-    if (reports.length === 0) {
+    // Helper to check if a filter is active
+    const hasActiveFilter = filters.hospitalName || filters.year || filters.month;
+    
+    const filterBarHtml = `
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:20px;">
+            <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;">
+                <div style="flex:2; min-width:150px;">
+                    <label style="font-size:12px; font-weight:600; color:var(--primary);">المستشفى</label>
+                    <select id="filterHospital" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface2);">
+                        <option value="">الكل</option>
+                        ${hospitalsList.map(h => `<option value="${escapeHtml(h)}" ${filters.hospitalName === h ? 'selected' : ''}>${escapeHtml(h)}</option>`).join('')}
+                    </select>
+                </div>
+                <div style="flex:1; min-width:120px;">
+                    <label style="font-size:12px; font-weight:600; color:var(--primary);">السنة</label>
+                    <select id="filterYear" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface2);">
+                        <option value="">الكل</option>
+                        ${yearsList.map(y => `<option value="${y}" ${filters.year == y ? 'selected' : ''}>${y}</option>`).join('')}
+                    </select>
+                </div>
+                <div style="flex:1; min-width:120px;">
+                    <label style="font-size:12px; font-weight:600; color:var(--primary);">الشهر</label>
+                    <select id="filterMonth" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface2);">
+                        <option value="">الكل</option>
+                        ${monthsList.map(m => `<option value="${m}" ${filters.month == m ? 'selected' : ''}>${getMonthName(m)}</option>`).join('')}
+                    </select>
+                </div>
+                <div>
+                    <button class="qa-btn" id="clearFiltersBtn" style="background:var(--red); color:white;">🗑️ مسح التصفية</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    if (allReports.length === 0) {
         mainContent.innerHTML = `
             <div class="section-view">
                 <div class="section-title-bar">
@@ -2415,14 +2530,14 @@ async function renderReportsList() {
                         <p>لا توجد تقارير محفوظة حالياً</p>
                     </div>
                 </div>
-               <div class="quick-actions">
-    <button class="qa-btn" onclick="showHome()">🏠 العودة للرئيسية</button>
-    <button class="qa-btn green" onclick="saveCurrentToDatabase()">💾 حفظ التقرير الحالي</button>
-    <button class="qa-btn" onclick="exportAllReports()">📦 تصدير جميع التقارير</button>
-    <button class="qa-btn" onclick="importDatabaseFromJSON()">📂 استيراد قاعدة بيانات (JSON)</button>
-</div>
+                <div class="quick-actions">
+                    <button class="qa-btn" onclick="showHome()">🏠 العودة للرئيسية</button>
+                    <button class="qa-btn green" onclick="saveCurrentToDatabase()">💾 حفظ التقرير الحالي</button>
+                    <button class="qa-btn" onclick="importDatabaseFromJSON()">📂 استيراد قاعدة بيانات (JSON)</button>
+                </div>
             </div>
         `;
+        attachFilterEvents();
         return;
     }
     
@@ -2432,18 +2547,20 @@ async function renderReportsList() {
                 <div class="stb-icon">📁</div>
                 <div class="stb-text">
                     <h2>التقارير المحفوظة</h2>
-                    <p>${reports.length} تقرير محفوظ</p>
+                    <p>${filteredReports.length} من ${allReports.length} تقرير ${hasActiveFilter ? '(نتائج التصفية)' : ''}</p>
                 </div>
             </div>
+            ${filterBarHtml}
             <div class="quick-actions">
-                <button class="qa-btn" onclick="showHome()">🏠 العودة للرئيسية</button>
-                <button class="qa-btn green" onclick="saveCurrentToDatabase()">💾 حفظ التقرير الحالي</button>
-                <button class="qa-btn" onclick="exportAllReports()">📦 تصدير جميع التقارير</button>
+                <button class="qa-btn" onclick="showHome()">🏠 الرئيسية</button>
+                <button class="qa-btn green" onclick="saveCurrentToDatabase()">💾 حفظ الحالي</button>
+                <button class="qa-btn" onclick="exportAllReports()">📦 تصدير الكل</button>
+                <button class="qa-btn" onclick="importDatabaseFromJSON()">📂 استيراد JSON</button>
             </div>
             <div class="sum-grid" style="grid-template-columns:1fr;">
     `;
     
-    for (const report of reports) {
+    for (const report of filteredReports) {
         const percentage = report.percentage || 0;
         const fillColor = percentage >= 80 ? 'var(--green)' : percentage >= 50 ? 'var(--orange)' : percentage > 0 ? 'var(--red)' : 'var(--border)';
         const dateObj = new Date(report.savedAt);
@@ -2479,8 +2596,60 @@ async function renderReportsList() {
     
     reportsHtml += `</div></div>`;
     mainContent.innerHTML = reportsHtml;
+    attachFilterEvents();
 }
 
+function attachFilterEvents() {
+    const hospitalSelect = document.getElementById('filterHospital');
+    const yearSelect = document.getElementById('filterYear');
+    const monthSelect = document.getElementById('filterMonth');
+    const clearBtn = document.getElementById('clearFiltersBtn');
+    
+    const doFilter = () => {
+        const hospital = hospitalSelect ? hospitalSelect.value : '';
+        const year = yearSelect ? yearSelect.value : '';
+        const month = monthSelect ? monthSelect.value : '';
+        renderReportsList({ hospitalName: hospital, year: year, month: month });
+    };
+    
+    if (hospitalSelect) hospitalSelect.onchange = doFilter;
+    if (yearSelect) yearSelect.onchange = doFilter;
+    if (monthSelect) monthSelect.onchange = doFilter;
+    if (clearBtn) {
+        clearBtn.onclick = () => {
+            if (hospitalSelect) hospitalSelect.value = '';
+            if (yearSelect) yearSelect.value = '';
+            if (monthSelect) monthSelect.value = '';
+            renderReportsList({ hospitalName: '', year: '', month: '' });
+        };
+    }
+}
+		function attachSearchEvents() {
+    const hospitalSelect = document.getElementById('searchHospitalSelect');
+    const yearSelect = document.getElementById('searchYearSelect');
+    const monthSelect = document.getElementById('searchMonthSelect');
+    const clearBtn = document.getElementById('clearSearchBtn');
+    
+    const applyFilters = () => {
+        const hospital = hospitalSelect ? hospitalSelect.value : '';
+        const year = yearSelect ? yearSelect.value : '';
+        const month = monthSelect ? monthSelect.value : '';
+        renderReportsList({ hospitalName: hospital, year: year, month: month });
+    };
+    
+    if (hospitalSelect) hospitalSelect.onchange = applyFilters;
+    if (yearSelect) yearSelect.onchange = applyFilters;
+    if (monthSelect) monthSelect.onchange = applyFilters;
+    
+    if (clearBtn) {
+        clearBtn.onclick = () => {
+            if (hospitalSelect) hospitalSelect.value = '';
+            if (yearSelect) yearSelect.value = '';
+            if (monthSelect) monthSelect.value = '';
+            renderReportsList({ hospitalName: '', year: '', month: '' });
+        };
+    }
+}
 async function loadAndViewReport(id) {
     await loadFromDatabase(id);
     showHome();
@@ -2519,7 +2688,8 @@ async function exportSingleReport(id) {
 function confirmDeleteReport(id) {
     openModal('حذف التقرير', 'هل أنت متأكد من حذف هذا التقرير؟ لا يمكن التراجع عن هذا الإجراء.', async () => {
         await deleteFromDatabase(id);
-        renderReportsList();
+        // Re‑render the reports list while preserving current filters
+        renderReportsList(currentReportFilters);
     });
 }
 
@@ -2631,8 +2801,12 @@ async function importDatabaseFromJSON() {
             console.error('Import error:', err);
             showToast('❌ خطأ في قراءة الملف: ' + err.message);
         } finally {
-            input.remove();
-        }
+    input.remove();
+    // Refresh the reports list if we are currently viewing it
+    if (currentSection === 'reports') {
+        renderReportsList(currentReportFilters);
+    }
+}
     };
     input.click();
 }
@@ -5813,6 +5987,7 @@ window.buildSidebarNav = function() {
         let notes = {};
         let meta = { hospital: '', hospitalName: '', type: '', governorate: 'الاسكندرية', inspectors: '', dates: '', result: '' };
         let currentSection = 'home';
+		let currentReportFilters = { hospitalName: '', year: '', month: '' };
 
         // ═══════════════════════════════════════
         // INIT
