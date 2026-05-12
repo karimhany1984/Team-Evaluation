@@ -2,8 +2,8 @@
   "name": "نموذج متابعةالمستشفيات",
   "short_name": "متابعةالمستشفيات",
   "description": "إدارة متابعة المديريات - نموذج متابعةالمستشفيات",
-  "start_url": "https://karimhany1984.github.io/hospital-form/index.html",
-  "scope": "https://karimhany1984.github.io/hospital-form/",
+  "start_url": "https://karimhany1984.github.io/trial/index.html",
+  "scope": "https://karimhany1984.github.io/trial/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#1a6faf",
@@ -12,18 +12,18 @@
   "dir": "rtl",
   "icons": [
     {
-      "src": "https://karimhany1984.github.io/hospital-form/icon.png",
+      "src": "https://karimhany1984.github.io/trial/icon.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "https://karimhany1984.github.io/hospital-form/icon.png",
+      "src": "https://karimhany1984.github.io/trial/icon.png",
       "sizes": "512x512",
       "type": "image/png"
     }
   ],
   "share_target": {
-    "action": "/hospital-form/share-target",
+    "action": "/trial/share-target",
     "method": "POST",
     "enctype": "multipart/form-data",
     "params": {
