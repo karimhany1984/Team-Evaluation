@@ -2396,7 +2396,8 @@ function showReportsManager() {
     currentSection = 'reports';
     document.getElementById('mnHome')?.classList.remove('active');
     document.getElementById('mnSummary')?.classList.remove('active');
-    
+	document.getElementById('mnReports')?.classList.add('active');
+	currentSection = 'reports';
     renderReportsList();
 }
 
@@ -2414,10 +2415,12 @@ async function renderReportsList() {
                         <p>لا توجد تقارير محفوظة حالياً</p>
                     </div>
                 </div>
-                <div class="quick-actions">
-                    <button class="qa-btn" onclick="showHome()">🏠 العودة للرئيسية</button>
-                    <button class="qa-btn green" onclick="saveCurrentToDatabase()">💾 حفظ التقرير الحالي</button>
-                </div>
+               <div class="quick-actions">
+    <button class="qa-btn" onclick="showHome()">🏠 العودة للرئيسية</button>
+    <button class="qa-btn green" onclick="saveCurrentToDatabase()">💾 حفظ التقرير الحالي</button>
+    <button class="qa-btn" onclick="exportAllReports()">📦 تصدير جميع التقارير</button>
+    <button class="qa-btn" onclick="importDatabaseFromJSON()">📂 استيراد قاعدة بيانات (JSON)</button>
+</div>
             </div>
         `;
         return;
@@ -2566,7 +2569,86 @@ async function exportAllReports() {
     URL.revokeObjectURL(url);
     showToast(`✓ تم تصدير ${reports.length} تقرير`);
 }
+// Import a JSON file containing one or more reports into IndexedDB
+async function importDatabaseFromJSON() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json, .json';
+    input.onchange = async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        try {
+            showToast('⏳ جاري قراءة ملف JSON...');
+            const text = await file.text();
+            const data = JSON.parse(text);
+            
+            // Validate structure: must have fullData array
+            if (!data.fullData || !Array.isArray(data.fullData) || data.fullData.length === 0) {
+                showToast('⚠️ الملف لا يحتوي على تقارير صالحة (fullData مفقود أو فارغ)');
+                return;
+            }
+            
+            showToast(`⏳ جاري استيراد ${data.fullData.length} تقرير...`);
+            
+            let importedCount = 0;
+            let skippedCount = 0;
+            
+            for (const report of data.fullData) {
+                // Basic validation of each report
+                if (!report.hospitalName && !report.totalEarned && !report.scores) {
+                    skippedCount++;
+                    continue;
+                }
+                
+                // Remove the original id (if exists) to let IndexedDB auto‑generate a new one
+                const { id, ...cleanReport } = report;
+                
+                // Ensure required fields exist
+                const reportToSave = {
+                    ...cleanReport,
+                    savedAt: cleanReport.savedAt || new Date().toISOString(),
+                    recordName: cleanReport.recordName || `${cleanReport.hospitalName || 'تقرير'}_${cleanReport.inspectionDate || 'تاريخ غير معروف'}`
+                };
+                
+                // Add to database
+                await addReportToDatabase(reportToSave);
+                importedCount++;
+                
+                // Small yield to keep UI responsive
+                if (importedCount % 5 === 0) {
+                    await new Promise(r => setTimeout(r, 10));
+                }
+            }
+            
+            showToast(`✅ تم استيراد ${importedCount} تقرير${skippedCount ? `، تم تخطي ${skippedCount} تقرير غير صالح` : ''}`);
+            
+            // Refresh the reports list if we are currently viewing it
+            if (currentSection === 'reports') {
+                renderReportsList();
+            }
+        } catch (err) {
+            console.error('Import error:', err);
+            showToast('❌ خطأ في قراءة الملف: ' + err.message);
+        } finally {
+            input.remove();
+        }
+    };
+    input.click();
+}
 
+// Helper: add a single report object to IndexedDB (auto‑increment id)
+async function addReportToDatabase(reportData) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.add(reportData);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+        transaction.oncomplete = () => db.close();
+    });
+}
 // Enhanced merge modal for Excel import with options
 function showEnhancedImportOptions(file) {
     const modal = document.createElement('div');
@@ -6050,13 +6132,6 @@ window.buildSidebarNav = function() {
             if (item) break;
         }
     }
-    
-    // Check if binary-only and trying to set 1
-    if (item && item.binaryOnly === true && val === 1) {
-        showToast('هذا العنصر تقييمه فقط (0/2/N/A)');
-        return;
-    }
-
     // Normal scoring
     scores[ik] = val;
     const row = document.getElementById(`irow-${ik}`);
