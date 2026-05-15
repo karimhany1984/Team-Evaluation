@@ -2936,24 +2936,7 @@ function escapeHtml(str) {
     });
 }
 
-// Add navigation button for Reports Manager
-// Add this to your buildSidebarNav function
-const originalBuildSidebarNav = buildSidebarNav;
-/*window.buildSidebarNav = function() {
-    originalBuildSidebarNav();
-    const sidebarNav = document.getElementById('sidebarNav');
-    if (sidebarNav && !document.getElementById('nav-reports')) {
-        const reportsItem = document.createElement('div');
-        reportsItem.className = `nav-item ${currentSection === 'reports' ? 'active' : ''}`;
-        reportsItem.id = 'nav-reports';
-        reportsItem.onclick = () => { showReportsManager(); closeSidebar(); };
-        reportsItem.innerHTML = `
-            <div class="nav-icon">📁</div>
-            <div class="nav-text"><div class="nav-title">قاعدة البيانات</div><div class="nav-sub">إدارة السجلات</div></div>
-        `;
-        sidebarNav.appendChild(reportsItem);
-    }
-}*/;       
+     
 		const FORM_DATA = [
   {
     "key": "general",
