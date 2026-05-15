@@ -6058,9 +6058,9 @@ const originalBuildSidebarNav = buildSidebarNav;
         // ═══════════════════════════════════════
         // SIDEBAR NAV
         // ═══════════════════════════════════════
-        function buildSidebarNav() {
-            const el = document.getElementById('sidebarNav');
-            let html = `<div class="nav-item ${currentSection === 'home' ? 'active' : ''}" onclick="showHome()">
+     function buildSidebarNav() {
+    const el = document.getElementById('sidebarNav');
+    let html = `<div class="nav-item ${currentSection === 'home' ? 'active' : ''}" onclick="showHome()">
         <div class="nav-icon ic-summary"></div>
         <div class="nav-text"><div class="nav-title">الصفحة الرئيسية</div></div>
       </div>
@@ -6071,24 +6071,24 @@ const originalBuildSidebarNav = buildSidebarNav;
       <div class="nav-item ${currentSection === 'analysis' ? 'active' : ''}" onclick="showAnalysis();closeSidebar()">
         <div class="nav-icon">📊</div>
         <div class="nav-text"><div class="nav-title">تحليل البيانات</div><div class="nav-sub">إحصائيات وتقارير</div></div>
+      </div>
+      <div class="nav-item ${currentSection === 'reports' ? 'active' : ''}" id="nav-reports" onclick="showReportsManager();closeSidebar()">
+        <div class="nav-icon">📁</div>
+        <div class="nav-text">
+          <div class="nav-title">قاعدة البيانات</div>
+          <div class="nav-sub">إدارة السجلات</div>
+        </div>
       </div>`;
-// After the Analysis item, add this:
-<div class="nav-item ${currentSection === 'reports' ? 'active' : ''}" id="nav-reports" onclick="showReportsManager();closeSidebar()">
-    <div class="nav-icon">📁</div>
-    <div class="nav-text">
-        <div class="nav-title">قاعدة البيانات</div>
-        <div class="nav-sub">إدارة السجلات</div>
-    </div>
-</div>
-            FORM_DATA.forEach(sec => {
-                const answered = countAnswered(sec.key);
-                const total = countTotal(sec.key);
-                const { earned } = getSectionScore(sec.key);
-                let pillClass = 'pill-empty', pillText = `0/${total}`;
-                if (answered > 0 && answered < total) { pillClass = 'pill-partial'; pillText = `${answered}/${total}` }
-                else if (answered === total && total > 0) { pillClass = 'pill-done'; pillText = `✓` }
-                const isActive = currentSection === sec.key;
-                html += `<div class="nav-item ${isActive ? 'active' : ''}" id="nav-${sec.key}" onclick="showSection('${sec.key}');closeSidebar()">
+
+    FORM_DATA.forEach(sec => {
+        const answered = countAnswered(sec.key);
+        const total = countTotal(sec.key);
+        const { earned } = getSectionScore(sec.key);
+        let pillClass = 'pill-empty', pillText = `0/${total}`;
+        if (answered > 0 && answered < total) { pillClass = 'pill-partial'; pillText = `${answered}/${total}` }
+        else if (answered === total && total > 0) { pillClass = 'pill-done'; pillText = `✓` }
+        const isActive = currentSection === sec.key;
+        html += `<div class="nav-item ${isActive ? 'active' : ''}" id="nav-${sec.key}" onclick="showSection('${sec.key}');closeSidebar()">
           <div class="nav-icon ic-${sec.key}"></div>
           <div class="nav-text">
             <div class="nav-title">${sec.title}</div>
@@ -6096,10 +6096,10 @@ const originalBuildSidebarNav = buildSidebarNav;
           </div>
           <span class="nav-pill ${pillClass}" id="npill-${sec.key}">${pillText}</span>
         </div>`;
-            });
+    });
 
-            el.innerHTML = html;
-        }
+    el.innerHTML = html;
+}
 
         function updateNavItem(key) {
             const el = document.getElementById(`nav-${key}`);
