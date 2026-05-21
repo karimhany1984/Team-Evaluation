@@ -2295,26 +2295,70 @@ async function importExcelWithOptions(file, importMode = 'new') {
     const sheet = new TextDecoder().decode(files['xl/worksheets/sheet1.xml']);
     const ss_xml = new TextDecoder().decode(files['xl/sharedStrings.xml']);
     
-    // Parse shared strings
+    // Parse shared strings safely (no catastrophic backtracking on large files).
+    // Uses indexOf instead of [\s\S]*? regex on the full 200KB string.
     const ssItems = [];
-    ss_xml.replace(/<si>([\s\S]*?)<\/si>/g, (m, inner) => {
-        let txt = '';
-        inner.replace(/<t[^>]*>([^<]*)<\/t>/g, (_, t) => { txt += t; });
-        ssItems.push(txt.trim());
-    });
-    
-    // Read metadata from sheet2
+    {
+        const openTag = '<si>';
+        const closeTag = '</si>';
+        let pos = 0;
+        while (true) {
+            const start = ss_xml.indexOf(openTag, pos);
+            if (start === -1) break;
+            const end = ss_xml.indexOf(closeTag, start + openTag.length);
+            if (end === -1) break;
+            const inner = ss_xml.slice(start + openTag.length, end);
+            // Collect all <t> text runs (handles plain and rich-text <r><t> runs)
+            let txt = '';
+            let tp = 0;
+            while (true) {
+                const ts = inner.indexOf('<t', tp);
+                if (ts === -1) break;
+                const te = inner.indexOf('>', ts);
+                if (te === -1) break;
+                const tc = inner.indexOf('</t>', te);
+                if (tc === -1) break;
+                txt += inner.slice(te + 1, tc);
+                tp = tc + 4;
+            }
+            ssItems.push(txt.trim());
+            pos = end + closeTag.length;
+        }
+    }
+
+    // Read metadata from sheet2 — no regex on full XML; uses indexOf for safety
     const sheet2_xml = new TextDecoder().decode(files['xl/worksheets/sheet2.xml']);
     const readSheetCell = (sheetXml, sharedStrings, cellRef) => {
-        const re = new RegExp('<c\\s[^>]*r="' + cellRef + '"[^>]*>[\\s\\S]*?<\/c>');
-        const m = sheetXml.match(re);
-        if (!m) return '';
-        const xml = m[0];
-        const v = xml.match(/<v>([^<]*)<\/v>/);
-        if (!v) return '';
-        if (/\bt="s"/.test(xml)) return sharedStrings[parseInt(v[1])] || '';
-        if (/\bt="str"/.test(xml)) return v[1];
-        return v[1];
+        const cellOpen = 'r="' + cellRef + '"';
+        const idx = sheetXml.indexOf(cellOpen);
+        if (idx === -1) return '';
+        const cStart = sheetXml.lastIndexOf('<c ', idx);
+        if (cStart === -1) return '';
+        const cEnd = sheetXml.indexOf('</c>', cStart);
+        if (cEnd === -1) return '';
+        const xml = sheetXml.slice(cStart, cEnd + 4);
+        const tMatch = xml.match(/\bt="([^"]*)"/);
+        const cellType = tMatch ? tMatch[1] : '';
+        const vStart = xml.indexOf('<v>');
+        const vEnd = xml.indexOf('</v>');
+        const rawVal = (vStart !== -1 && vEnd !== -1) ? xml.slice(vStart + 3, vEnd) : '';
+        if (cellType === 's') {
+            const si = parseInt(rawVal);
+            return (!isNaN(si) && sharedStrings[si] !== undefined) ? sharedStrings[si] : '';
+        }
+        if (cellType === 'inlineStr') {
+            const isStart = xml.indexOf('<is>');
+            const isEnd = xml.indexOf('</is>');
+            if (isStart !== -1 && isEnd !== -1) {
+                const isInner = xml.slice(isStart + 4, isEnd);
+                const tS = isInner.indexOf('<t');
+                const tE = isInner.indexOf('>', tS);
+                const tC = isInner.indexOf('</t>', tE);
+                return tS !== -1 ? isInner.slice(tE + 1, tC).trim() : '';
+            }
+        }
+        // 'str' (formula result) or plain number — raw value is correct
+        return rawVal.trim();
     };
     
     const importedMeta = {
@@ -2324,44 +2368,67 @@ async function importExcelWithOptions(file, importMode = 'new') {
         type: readSheetCell(sheet2_xml, ssItems, 'D3')
     };
     
-    // Read scores
+    // Read scores — indexOf-based row lookup avoids regex backtracking on large sheet XMLs.
     const importedScores = {};
     const importedNotes = {};
-    
+
+    // Pre-index sheet1 rows by row number for O(1) access
+    const rowIndex = {};
+    {
+        let pos = 0;
+        while (true) {
+            const rs = sheet.indexOf('<row ', pos);
+            if (rs === -1) break;
+            const re2 = sheet.indexOf('</row>', rs);
+            if (re2 === -1) break;
+            const rowXml = sheet.slice(rs, re2 + 6);
+            const rMatch = rowXml.match(/\br="(\d+)"/);
+            if (rMatch) rowIndex[parseInt(rMatch[1])] = rowXml;
+            pos = re2 + 6;
+        }
+    }
+
+    // Read a specific column cell from a pre-extracted row XML
+    const readCellFromRow = (rowXml, col, rowNum) => {
+        const cellRef = col + rowNum;
+        const cidx = rowXml.indexOf('r="' + cellRef + '"');
+        if (cidx === -1) return null;
+        const cStart = rowXml.lastIndexOf('<c ', cidx);
+        if (cStart === -1) return null;
+        const cEnd = rowXml.indexOf('</c>', cStart);
+        if (cEnd === -1) return null;
+        const xml = rowXml.slice(cStart, cEnd + 4);
+        const tMatch = xml.match(/\bt="([^"]*)"/);
+        const cellType = tMatch ? tMatch[1] : '';
+        const vStart = xml.indexOf('<v>');
+        const vEnd = xml.indexOf('</v>');
+        if (vStart === -1 || vEnd === -1) return null;
+        const rawVal = xml.slice(vStart + 3, vEnd).trim();
+        if (cellType === 's') {
+            const si = parseInt(rawVal);
+            return (!isNaN(si) && ssItems[si] !== undefined) ? ssItems[si] : rawVal;
+        }
+        return rawVal;
+    };
+
     FORM_DATA.forEach(sec => {
         let idx = 0;
         sec.subsections.forEach(sub => sub.items.forEach(() => {
             const mapKey = sec.key + '__' + idx;
             const exRow = ROW_MAP[mapKey];
             if (exRow) {
-                const cRe = new RegExp('<c\\s[^>]*r="C' + exRow + '"(?=[">/ ])[^>]*>(?:(?!<\/row>)[\\s\\S])*?<\/c>');
-                const cM = sheet.match(cRe);
-                if (cM) {
-                    const vM = cM[0].match(/<v>([^<]*)<\/v>/);
-                    if (vM) {
-                        let val = vM[1].trim();
-                        if (/\bt="s"/.test(cM[0])) {
-                            const si = parseInt(val);
-                            if (!isNaN(si) && ssItems[si] !== undefined) val = ssItems[si];
-                        }
-                        if (val === 'N/A') importedScores[mapKey] = 'N/A';
-                        else if (val === '0' || val === '0.0') importedScores[mapKey] = 0;
-                        else if (val === '1' || val === '1.0') importedScores[mapKey] = 1;
-                        else if (val === '2' || val === '2.0') importedScores[mapKey] = 2;
+                const rowXml = rowIndex[exRow];
+                if (rowXml) {
+                    const cVal = readCellFromRow(rowXml, 'C', exRow);
+                    if (cVal !== null) {
+                        const v = cVal.trim();
+                        if (v === 'N/A') importedScores[mapKey] = 'N/A';
+                        else if (v === '0' || v === '0.0') importedScores[mapKey] = 0;
+                        else if (v === '1' || v === '1.0') importedScores[mapKey] = 1;
+                        else if (v === '2' || v === '2.0') importedScores[mapKey] = 2;
                     }
-                }
-                const dRe = new RegExp('<c\\s[^>]*r="D' + exRow + '"(?=[">/ ])[^>]*>(?:(?!<\/row>)[\\s\\S])*?<\/c>');
-                const dM = sheet.match(dRe);
-                if (dM) {
-                    const vM = dM[0].match(/<v>([^<]*)<\/v>/);
-                    if (vM && vM[1].trim()) {
-                        if (/\bt="s"/.test(dM[0])) {
-                            const si = parseInt(vM[1].trim());
-                            if (!isNaN(si) && ssItems[si]) importedNotes[mapKey] = ssItems[si];
-                        } else {
-                            importedNotes[mapKey] = vM[1].trim();
-                        }
-                    }
+                    const dVal = readCellFromRow(rowXml, 'D', exRow);
+                    if (dVal && dVal.trim()) importedNotes[mapKey] = dVal.trim();
                 }
             }
             idx++;
@@ -6709,26 +6776,58 @@ function setNote(ik, val) {
                 // ── READ METADATA from sheet2 cells ──
                 const sheet2_xml = new TextDecoder().decode(files['xl/worksheets/sheet2.xml']);
 
-                // Read a cell value from any sheet xml (handles t="s", t="str", numeric)
-                const readSheetCell = (sheetXml, sharedStrings, cellRef) => {
-                    const re = new RegExp('<c\\s[^>]*r="' + cellRef + '"[^>]*>[\\s\\S]*?<\/c>');
-                    const m = sheetXml.match(re);
-                    if (!m) return '';
-                    const xml = m[0];
-                    const v = xml.match(/<v>([^<]*)<\/v>/);
-                    if (!v) return '';
-                    if (/\bt="s"/.test(xml)) return sharedStrings[parseInt(v[1])] || '';
-                    if (/\bt="str"/.test(xml)) return v[1];
-                    return v[1];
-                };
 
-                // Parse shared strings for metadata reading
+                // Parse shared strings safely (no regex backtracking on large files)
                 const ssItems = [];
-                ss_xml.replace(/<si>([\s\S]*?)<\/si>/g, (m, inner) => {
-                    let txt = '';
-                    inner.replace(/<t[^>]*>([^<]*)<\/t>/g, (_, t) => { txt += t; });
-                    ssItems.push(txt.trim());
-                });
+                {
+                    const _open = '<si>', _close = '</si>';
+                    let _pos = 0;
+                    while (true) {
+                        const _s = ss_xml.indexOf(_open, _pos);
+                        if (_s === -1) break;
+                        const _e = ss_xml.indexOf(_close, _s + _open.length);
+                        if (_e === -1) break;
+                        const _inner = ss_xml.slice(_s + _open.length, _e);
+                        let _txt = '', _tp = 0;
+                        while (true) {
+                            const _ts = _inner.indexOf('<t', _tp);
+                            if (_ts === -1) break;
+                            const _te = _inner.indexOf('>', _ts);
+                            if (_te === -1) break;
+                            const _tc = _inner.indexOf('</t>', _te);
+                            if (_tc === -1) break;
+                            _txt += _inner.slice(_te + 1, _tc);
+                            _tp = _tc + 4;
+                        }
+                        ssItems.push(_txt.trim());
+                        _pos = _e + _close.length;
+                    }
+                }
+
+                // Read a cell value — safe indexOf approach, handles self-closing cells
+                const readSheetCell = (sheetXml, sharedStrings, cellRef) => {
+                    const _marker = 'r="' + cellRef + '"';
+                    const _idx = sheetXml.indexOf(_marker);
+                    if (_idx === -1) return '';
+                    const _cStart = sheetXml.lastIndexOf('<c ', _idx);
+                    if (_cStart === -1) return '';
+                    // Check for self-closing cell (no value): <c r="X" .../>
+                    const _tagEnd = sheetXml.indexOf('>', _cStart);
+                    if (_tagEnd !== -1 && sheetXml[_tagEnd - 1] === '/') return '';
+                    const _cEnd = sheetXml.indexOf('</c>', _cStart);
+                    if (_cEnd === -1) return '';
+                    const _xml = sheetXml.slice(_cStart, _cEnd + 4);
+                    const _tM = _xml.match(/\bt="([^"]*)"/);
+                    const _type = _tM ? _tM[1] : '';
+                    const _vs = _xml.indexOf('<v>'), _ve = _xml.indexOf('</v>');
+                    if (_vs === -1 || _ve === -1) return '';
+                    const _raw = _xml.slice(_vs + 3, _ve).trim();
+                    if (_type === 's') {
+                        const _si = parseInt(_raw);
+                        return (!isNaN(_si) && sharedStrings[_si] !== undefined) ? sharedStrings[_si] : '';
+                    }
+                    return _raw;
+                };
 
                 // Read metadata from sheet2
                 
@@ -6743,50 +6842,54 @@ function setNote(ik, val) {
                 meta.inspectors = rawInsp.trim();
                 meta.type = rawType.trim();
 
-                // ── READ SCORES: col C = numeric score (0/1/2) or 'NA', col D = notes ──
+                // ── READ SCORES ──
                 scores = {};
+                // Read scores using row-index (no regex on full sheet XML)
+                const _rowIdx = {};
+                { let _p = 0;
+                  while (true) {
+                    const _rs = sheet.indexOf('<row ', _p); if (_rs === -1) break;
+                    const _re = sheet.indexOf('</row>', _rs); if (_re === -1) break;
+                    const _rx = sheet.slice(_rs, _re + 6);
+                    const _rm = _rx.match(/\br="(\d+)"/);
+                    if (_rm) _rowIdx[parseInt(_rm[1])] = _rx;
+                    _p = _re + 6;
+                  }
+                }
+                const _readCell = (rowXml, col, rowNum) => {
+                    const _ref = col + rowNum;
+                    const _ci = rowXml.indexOf('r="' + _ref + '"'); if (_ci === -1) return null;
+                    const _cs = rowXml.lastIndexOf('<c ', _ci); if (_cs === -1) return null;
+                    const _te = rowXml.indexOf('>', _cs);
+                    if (_te !== -1 && rowXml[_te - 1] === '/') return null; // self-closing
+                    const _ce = rowXml.indexOf('</c>', _cs); if (_ce === -1) return null;
+                    const _xml = rowXml.slice(_cs, _ce + 4);
+                    const _tm = _xml.match(/\bt="([^"]*)"/);
+                    const _type = _tm ? _tm[1] : '';
+                    const _vs = _xml.indexOf('<v>'), _ve = _xml.indexOf('</v>');
+                    if (_vs === -1 || _ve === -1) return null;
+                    const _raw = _xml.slice(_vs + 3, _ve).trim();
+                    if (_type === 's') { const _si = parseInt(_raw); return (!isNaN(_si) && ssItems[_si] !== undefined) ? ssItems[_si] : _raw; }
+                    return _raw;
+                };
                 FORM_DATA.forEach(sec => {
                     let idx = 0;
-                    sec.subsections.forEach(sub => sub.items.forEach(item => {
+                    sec.subsections.forEach(sub => sub.items.forEach(() => {
                         const mapKey = sec.key + '__' + idx;
                         const exRow = ROW_MAP[mapKey];
                         if (exRow) {
-                            // Read col C for score
-                            const cAddr = 'C' + exRow;
-                            const cRe = new RegExp('<c\\s[^>]*r="' + cAddr + '"(?=[">/ ])[^>]*>(?:(?!<\/row>)[\\s\\S])*?<\/c>');
-                            const cMatch = sheet.match(cRe);
-                            if (cMatch) {
-                                const vMatch = cMatch[0].match(/<v>([^<]*)<\/v>/);
-                                if (vMatch) {
-                                    let val = vMatch[1].trim();
-                                    // Resolve shared string (t="s") — e.g. N/A stored as shared string index
-                                    if (/\bt="s"/.test(cMatch[0])) {
-                                        const ssIdx = parseInt(val);
-                                        if (!isNaN(ssIdx) && ssItems[ssIdx] !== undefined) {
-                                            val = ssItems[ssIdx];
-                                        }
-                                    }
-                                    if (val === 'N/A') scores[mapKey] = 'N/A';
-                                    else if (val === '0' || val === '0.0') scores[mapKey] = 0;
-                                    else if (val === '1' || val === '1.0') scores[mapKey] = 1;
-                                    else if (val === '2' || val === '2.0') scores[mapKey] = 2;
+                            const rowXml = _rowIdx[exRow];
+                            if (rowXml) {
+                                const cVal = _readCell(rowXml, 'C', exRow);
+                                if (cVal !== null) {
+                                    const v = cVal.trim();
+                                    if (v === 'N/A') scores[mapKey] = 'N/A';
+                                    else if (v === '0' || v === '0.0') scores[mapKey] = 0;
+                                    else if (v === '1' || v === '1.0') scores[mapKey] = 1;
+                                    else if (v === '2' || v === '2.0') scores[mapKey] = 2;
                                 }
-                            }
-                            // Read col D for notes (resolve shared strings if t="s")
-                            const dAddr = 'D' + exRow;
-                            const dRe = new RegExp('<c\\s[^>]*r="' + dAddr + '"(?=[">/ ])[^>]*>(?:(?!<\/row>)[\\s\\S])*?<\/c>');
-                            const dMatch = sheet.match(dRe);
-                            if (dMatch) {
-                                const vMatch = dMatch[0].match(/<v>([^<]*)<\/v>/);
-                                if (vMatch && vMatch[1].trim()) {
-                                    if (/\bt="s"/.test(dMatch[0])) {
-                                        // Shared string: look up in ssItems array
-                                        const ssIdx = parseInt(vMatch[1].trim());
-                                        if (!isNaN(ssIdx) && ssItems[ssIdx]) notes[mapKey] = ssItems[ssIdx];
-                                    } else {
-                                        notes[mapKey] = vMatch[1].trim();
-                                    }
-                                }
+                                const dVal = _readCell(rowXml, 'D', exRow);
+                                if (dVal && dVal.trim()) notes[mapKey] = dVal.trim();
                             }
                         }
                         idx++;
@@ -6822,13 +6925,33 @@ function setNote(ik, val) {
                 const sheet = new TextDecoder().decode(files['xl/worksheets/sheet1.xml']);
                 const ss_xml = new TextDecoder().decode(files['xl/sharedStrings.xml']);
 
-                // Parse shared strings
+
+                // Parse shared strings safely (no regex backtracking on large files)
                 const ssItems = [];
-                ss_xml.replace(/<si>([\s\S]*?)<\/si>/g, (m, inner) => {
-                    let txt = '';
-                    inner.replace(/<t[^>]*>([^<]*)<\/t>/g, (_, t) => { txt += t; });
-                    ssItems.push(txt.trim());
-                });
+                {
+                    const _open = '<si>', _close = '</si>';
+                    let _pos = 0;
+                    while (true) {
+                        const _s = ss_xml.indexOf(_open, _pos);
+                        if (_s === -1) break;
+                        const _e = ss_xml.indexOf(_close, _s + _open.length);
+                        if (_e === -1) break;
+                        const _inner = ss_xml.slice(_s + _open.length, _e);
+                        let _txt = '', _tp = 0;
+                        while (true) {
+                            const _ts = _inner.indexOf('<t', _tp);
+                            if (_ts === -1) break;
+                            const _te = _inner.indexOf('>', _ts);
+                            if (_te === -1) break;
+                            const _tc = _inner.indexOf('</t>', _te);
+                            if (_tc === -1) break;
+                            _txt += _inner.slice(_te + 1, _tc);
+                            _tp = _tc + 4;
+                        }
+                        ssItems.push(_txt.trim());
+                        _pos = _e + _close.length;
+                    }
+                }
 
                 // Read all scores + notes from the incoming file
                 const incomingScores = {};
@@ -7488,33 +7611,20 @@ files['xl/workbook.xml'] = new TextEncoder().encode(workbook);
             const avgPct = count ? (filtered.reduce((s,r)=>s + (r.percentage||0),0)/count).toFixed(1) : 0;
             const best = count ? filtered.reduce((b,r)=> (r.percentage||0) > (b.percentage||0) ? r : b, filtered[0]) : null;
             const worst = count ? filtered.reduce((w,r)=> (r.percentage||0) < (w.percentage||0) ? r : w, filtered[0]) : null;
-            const totalReports = allReports.length;
-
-            // Avg gauge color
-            const avgNum = parseFloat(avgPct);
-            const gaugeColor = avgNum >= 80 ? 'var(--green)' : avgNum >= 50 ? 'var(--accent)' : 'var(--red)';
-            const gaugeLabel = avgNum >= 80 ? 'جيد' : avgNum >= 50 ? 'متوسط' : 'ضعيف';
-            const gaugeLabelClass = avgNum >= 80 ? 'lbl-good' : avgNum >= 50 ? 'lbl-med' : 'lbl-bad';
-            // SVG arc: half-circle 0-180deg mapped to 0-100%
-            const gaugeArcLen = 94.2; // π * r = π * 30
-            const gaugeFill = (avgNum / 100) * gaugeArcLen;
-            const gaugeOffset = gaugeArcLen - gaugeFill;
 
             // Trend over time: group by month (year-month)
             const trend = {};
             filtered.forEach(r => {
                 const d = parseDate(r.inspectionDate);
                 if (!d) return;
-                const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+                const key = `${d.getFullYear()}-${d.getMonth()+1}`;
                 if (!trend[key]) trend[key] = { total:0, count:0 };
                 trend[key].total += r.percentage;
                 trend[key].count++;
             });
             const trendLabels = Object.keys(trend).sort();
-            const trendData = trendLabels.map(k => parseFloat((trend[k].total / trend[k].count).toFixed(1)));
-            const maxTrend = Math.max(...trendData, 0);
-
-            // Old-style trend bars (kept for compatibility)
+            const trendData = trendLabels.map(k => (trend[k].total / trend[k].count).toFixed(1));
+            const maxTrend = Math.max(...trendData.map(v => parseFloat(v)), 0);
             const trendBars = trendLabels.map((label, i) => {
                 const val = trendData[i];
                 const height = maxTrend ? (val / maxTrend) * 150 : 0;
@@ -7553,302 +7663,58 @@ files['xl/workbook.xml'] = new TextEncoder().encode(workbook);
                     }
                 });
             });
-
-            // Sort sections by score ascending (weakest first)
-            const sortedSections = sections
-                .map(sec => {
-                    const t = sectionScores[sec];
-                    const pct = t.count && t.max ? parseFloat((t.total / t.max * 100).toFixed(1)) : 0;
-                    return { key: sec, title: FORM_DATA.find(s=>s.key===sec)?.title || sec, pct };
-                })
-                .sort((a,b) => a.pct - b.pct);
-
-            const weakRows = sortedSections.map(({ title, pct }) => {
-                const fillColor = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--accent)' : pct > 0 ? 'var(--red)' : 'var(--border)';
-                const badge = pct >= 80
-                    ? `<span style="background:var(--green-light);color:var(--green);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;">جيد</span>`
-                    : pct >= 50
-                    ? `<span style="background:#fff3cd;color:#856404;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;">متوسط</span>`
-                    : pct > 0
-                    ? `<span style="background:var(--red-light);color:var(--red);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;">ضعيف</span>`
-                    : `<span style="background:var(--border-light);color:var(--text-dim);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;">لا بيانات</span>`;
+            const weakRows = sections.map(sec => {
+                const t = sectionScores[sec];
+                const avgPctSec = t.count ? (t.total / t.max * 100).toFixed(1) : 0;
+                const fillColor = avgPctSec >= 80 ? 'var(--green)' : avgPctSec >= 50 ? 'var(--orange)' : avgPctSec > 0 ? 'var(--red)' : 'var(--border)';
                 return `<div class="sum-card" style="margin-bottom:8px; cursor:default;">
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                        <div class="sum-card-title" style="margin-bottom:0;">${escapeHtml(title)}</div>
-                        ${badge}
-                    </div>
-                    <div class="sum-bar"><div class="sum-bar-fill" style="width:${pct}%; background:${fillColor}"></div></div>
-                    <div class="sum-scores"><span class="sum-earned">${pct}%</span><span class="sum-max">متوسط النسبة</span></div>
+                    <div class="sum-card-title">${FORM_DATA.find(s=>s.key===sec)?.title || sec}</div>
+                    <div class="sum-bar"><div class="sum-bar-fill" style="width:${avgPctSec}%; background:${fillColor}"></div></div>
+                    <div class="sum-scores"><span class="sum-earned">${avgPctSec}%</span><span class="sum-max">متوسط النسبة</span></div>
                 </div>`;
             }).join('');
 
-            // Top hospitals table rows
-            const hospitalStats = {};
-            filtered.forEach(r => {
-                const name = r.hospitalName || '—';
-                if (!hospitalStats[name]) hospitalStats[name] = { total:0, count:0 };
-                hospitalStats[name].total += (r.percentage||0);
-                hospitalStats[name].count++;
-            });
-            const hospitalRows = Object.entries(hospitalStats)
-                .map(([name, s]) => ({ name, avg: parseFloat((s.total/s.count).toFixed(1)), count: s.count }))
-                .sort((a,b) => b.avg - a.avg)
-                .slice(0, 6)
-                .map(({ name, avg, count }) => {
-                    const dotColor = avg >= 80 ? 'var(--green)' : avg >= 50 ? 'var(--accent)' : 'var(--red)';
-                    const actH = [14,18,12,20,16,10,22].map(h=>`<span style="display:inline-block;width:3px;height:${h}px;border-radius:1px;background:var(--primary);opacity:0.7;"></span>`).join('');
-                    return `<tr>
-                        <td style="padding:6px 5px;font-size:12px;color:var(--primary);font-weight:600;">${escapeHtml(name)}</td>
-                        <td style="text-align:center;padding:6px 5px;"><div style="display:flex;align-items:flex-end;gap:1px;height:22px;justify-content:center;">${actH}</div></td>
-                        <td style="text-align:center;padding:6px 5px;"><div style="display:flex;justify-content:center;align-items:center;gap:3px;"><span style="width:7px;height:7px;border-radius:50%;background:${dotColor};display:inline-block;"></span><span style="font-size:11px;font-weight:700;color:var(--text);">${count}</span></div></td>
-                        <td style="text-align:center;padding:6px 5px;font-size:11px;color:var(--text-muted);">${avg}%</td>
-                    </tr>`;
-                }).join('');
-
-            // Trend chart data for Chart.js (JSON-safe)
-            const trendJSON = JSON.stringify(trendData);
-            const trendLabelsJSON = JSON.stringify(trendLabels);
-
             const filterHtml = `
                 <div class="analysis-filter-bar">
-                    <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-                        <select id="analysisHospital" style="flex:1; min-width:140px; padding:8px; border:1px solid var(--border); border-radius:var(--radius-sm); font-family:'Cairo',sans-serif; font-size:13px;">
-                            <option value="">🏥 كل المستشفيات</option>
-                            ${hospitals.map(h=>`<option value="${escapeHtml(h)}" ${filters.hospitalName===h?'selected':''}>${escapeHtml(h)}</option>`).join('')}
+                    <div style="display:flex; flex-wrap:wrap; gap:12px;">
+                        <select id="analysisHospital" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                            <option value="">كل المستشفيات</option>
+                            ${hospitals.map(h=>`<option ${filters.hospitalName===h?'selected':''}>${escapeHtml(h)}</option>`).join('')}
                         </select>
-                        <select id="analysisYear" style="flex:1; min-width:110px; padding:8px; border:1px solid var(--border); border-radius:var(--radius-sm); font-family:'Cairo',sans-serif; font-size:13px;">
-                            <option value="">📅 كل السنوات</option>
-                            ${years.map(y=>`<option value="${y}" ${filters.year==y?'selected':''}>${y}</option>`).join('')}
+                       
+                        <select id="analysisYear" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                            <option value="">كل السنوات</option>
+                            ${years.map(y=>`<option ${filters.year==y?'selected':''}>${y}</option>`).join('')}
                         </select>
-                        <select id="analysisMonth" style="flex:1; min-width:110px; padding:8px; border:1px solid var(--border); border-radius:var(--radius-sm); font-family:'Cairo',sans-serif; font-size:13px;">
-                            <option value="">🗓️ كل الشهور</option>
-                            ${months.map(m=>`<option value="${m}" ${filters.month==m?'selected':''}>${getMonthName(m)}</option>`).join('')}
+                        <select id="analysisMonth" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                            <option value="">كل الشهور</option>
+                            ${months.map(m=>`<option ${filters.month==m?'selected':''}>${getMonthName(m)}</option>`).join('')}
                         </select>
-                        <button class="qa-btn" id="applyAnalysisFilters" style="background:var(--primary); color:white; min-width:90px;">🔍 تطبيق</button>
-                        <button class="qa-btn" id="resetAnalysisFilters" style="min-width:90px;">🗑️ إعادة تعيين</button>
+                        <button class="qa-btn" id="applyAnalysisFilters" style="background:var(--primary); color:white;">🔍 تطبيق</button>
+                        <button class="qa-btn" id="resetAnalysisFilters">🗑️ إعادة تعيين</button>
                     </div>
                 </div>
             `;
 
             const html = `
                 <div class="section-view">
-                    <!-- Header -->
                     <div class="section-title-bar">
                         <div class="stb-icon">📊</div>
-                        <div class="stb-text"><h2>تحليل البيانات</h2><p>${count} تقرير مطابق للفلترة من أصل ${totalReports}</p></div>
-                        <button class="hbtn hbtn-accent" onclick="exportAnalysisToExcel()">📥 تصدير (Excel)</button>
+                        <div class="stb-text"><h2>تحليل البيانات</h2><p>${count} تقرير مطابق للفلترة</p></div>
+                        <button class="hbtn hbtn-accent" onclick="exportAnalysisToExcel()">📥 تصدير التحليل (Excel)</button>
                     </div>
-
-                    <!-- Filters -->
                     ${filterHtml}
-
-                    <!-- ══════════ DASHBOARD TOP ROW ══════════ -->
-                    <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; margin-bottom:16px;">
-
-                        <!-- Gauge: avg compliance -->
-                        <div class="sum-card" style="cursor:default; text-align:center;">
-                            <div class="sum-card-title" style="font-size:11px; margin-bottom:6px;">📈 متوسط الامتثال</div>
-                            <svg width="90" height="54" viewBox="0 0 90 54" style="display:block;margin:0 auto;">
-                                <path d="M10 50 A35 35 0 0 1 80 50" fill="none" stroke="var(--border)" stroke-width="8" stroke-linecap="round"/>
-                                <path d="M10 50 A35 35 0 0 1 80 50" fill="none" stroke="${gaugeColor}" stroke-width="8" stroke-linecap="round"
-                                    stroke-dasharray="${gaugeArcLen}" stroke-dashoffset="${gaugeOffset}"/>
-                                <text x="45" y="48" text-anchor="middle" font-size="14" font-weight="700" fill="var(--text)" font-family="Cairo,sans-serif">${avgPct}%</text>
-                            </svg>
-                            <span style="background:${avgNum>=80?'var(--green-light)':avgNum>=50?'#fff3cd':'var(--red-light)'};color:${avgNum>=80?'var(--green)':avgNum>=50?'#856404':'var(--red)'};font-size:10px;font-weight:700;padding:2px 10px;border-radius:20px;">${gaugeLabel}</span>
-                        </div>
-
-                        <!-- Total reports -->
-                        <div class="sum-card" style="cursor:default;">
-                            <div class="sum-card-title" style="font-size:11px;">📋 عدد التقارير</div>
-                            <div style="font-size:28px;font-weight:900;color:var(--primary);line-height:1.2;">${count}</div>
-                            <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">من إجمالي ${totalReports}</div>
-                        </div>
-
-                        <!-- Best hospital -->
-                        <div class="sum-card" style="cursor:default; border-right:3px solid var(--green);">
-                            <div class="sum-card-title" style="font-size:11px;">🏆 الأفضل أداءً</div>
-                            <div style="font-size:13px;font-weight:700;color:var(--green);line-height:1.4;">${best ? escapeHtml(best.hospitalName) : '—'}</div>
-                            ${best ? `<div style="font-size:20px;font-weight:900;color:var(--green);">${best.percentage}%</div>` : ''}
-                        </div>
-
-                        <!-- Worst hospital -->
-                        <div class="sum-card" style="cursor:default; border-right:3px solid var(--red);">
-                            <div class="sum-card-title" style="font-size:11px;">⚠️ يحتاج تحسين</div>
-                            <div style="font-size:13px;font-weight:700;color:var(--red);line-height:1.4;">${worst ? escapeHtml(worst.hospitalName) : '—'}</div>
-                            ${worst ? `<div style="font-size:20px;font-weight:900;color:var(--red);">${worst.percentage}%</div>` : ''}
-                        </div>
+                    <div class="sum-grid" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr));">
+                        <div class="sum-card" style="cursor:default;"><div class="sum-card-title">📈 متوسط النسبة</div><div class="sum-earned">${avgPct}%</div></div>
+                        <div class="sum-card" style="cursor:default;"><div class="sum-card-title">🏆 أفضل مستشفى</div><div class="sum-earned">${best ? escapeHtml(best.hospitalName)+' ('+best.percentage+'%)' : '-'}</div></div>
+                        <div class="sum-card" style="cursor:default;"><div class="sum-card-title">⚠️ أقل مستشفى</div><div class="sum-earned">${worst ? escapeHtml(worst.hospitalName)+' ('+worst.percentage+'%)' : '-'}</div></div>
                     </div>
+                    <div class="section-title-bar" style="margin-top:20px;"><div class="stb-icon">📈</div><div class="stb-text"><h3>الاتجاه الزمني (شهرياً)</h3></div></div>
+                    <div class="sum-card" style="overflow-x:auto; cursor:default;"><div class="trend-chart">${trendBars || '<div style="text-align:center; width:100%;">لا توجد بيانات كافية للاتجاه</div>'}</div></div>
 
-                    <!-- ══════════ TREND CHART ══════════ -->
-                    <div class="section-title-bar" style="margin-top:4px;">
-                        <div class="stb-icon" style="font-size:16px;">📈</div>
-                        <div class="stb-text"><h3 style="font-size:14px;">الاتجاه الزمني للامتثال (شهرياً)</h3></div>
-                    </div>
-                    <div class="sum-card" style="cursor:default; padding:16px; margin-bottom:16px;">
-                        ${trendData.length > 0 ? `
-                        <div style="position:relative; width:100%; height:200px;">
-                            <canvas id="analysisTrendChart" role="img" aria-label="رسم بياني للاتجاه الزمني لمتوسط الامتثال شهرياً">بيانات الاتجاه الزمني</canvas>
-                        </div>` : `<div style="text-align:center;padding:40px;color:var(--text-muted);">لا توجد بيانات كافية للاتجاه الزمني</div>`}
-                    </div>
-
-                    <!-- ══════════ TWO COLUMNS: Hospitals table + Section scores ══════════ -->
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
-
-                        <!-- Hospitals performance table -->
-                        <div>
-                            <div class="section-title-bar" style="margin-bottom:10px; padding:12px 16px;">
-                                <div class="stb-icon" style="font-size:14px; width:34px; height:34px;">🏥</div>
-                                <div class="stb-text"><h3 style="font-size:13px;">أداء المستشفيات</h3></div>
-                            </div>
-                            <div class="sum-card" style="cursor:default; padding:0;">
-                                <table style="width:100%; border-collapse:collapse;">
-                                    <thead>
-                                        <tr style="border-bottom:1px solid var(--border);">
-                                            <th style="text-align:right;padding:8px 10px;font-size:11px;color:var(--text-muted);font-weight:600;">المستشفى</th>
-                                            <th style="text-align:center;padding:8px 5px;font-size:11px;color:var(--text-muted);font-weight:600;">نشاط</th>
-                                            <th style="text-align:center;padding:8px 5px;font-size:11px;color:var(--text-muted);font-weight:600;">عدد</th>
-                                            <th style="text-align:center;padding:8px 5px;font-size:11px;color:var(--text-muted);font-weight:600;">متوسط</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>${hospitalRows || '<tr><td colspan="4" style="text-align:center;padding:16px;color:var(--text-muted);">لا توجد بيانات</td></tr>'}</tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <!-- Section scores donut -->
-                        <div>
-                            <div class="section-title-bar" style="margin-bottom:10px; padding:12px 16px;">
-                                <div class="stb-icon" style="font-size:14px; width:34px; height:34px;">🍩</div>
-                                <div class="stb-text"><h3 style="font-size:13px;">توزيع الأداء</h3></div>
-                            </div>
-                            <div class="sum-card" style="cursor:default; padding:16px;">
-                                <div style="position:relative; width:100%; height:180px;">
-                                    <canvas id="analysisDonutChart" role="img" aria-label="رسم دائري لتوزيع أداء الأقسام">توزيع أداء الأقسام</canvas>
-                                </div>
-                                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;justify-content:center;">
-                                    <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);"><span style="width:10px;height:10px;border-radius:2px;background:#1a8a4a;display:inline-block;"></span>جيد ≥80%</span>
-                                    <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);"><span style="width:10px;height:10px;border-radius:2px;background:#e8a020;display:inline-block;"></span>متوسط 50-79%</span>
-                                    <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);"><span style="width:10px;height:10px;border-radius:2px;background:#c0392b;display:inline-block;"></span>ضعيف <50%</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- ══════════ WEAK POINTS (sorted, full width) ══════════ -->
-                    <div class="section-title-bar" style="margin-top:4px;">
-                        <div class="stb-icon" style="font-size:16px;">⚠️</div>
-                        <div class="stb-text"><h3 style="font-size:14px;">نقاط الضعف — الأقسام مرتبةً من الأضعف</h3></div>
-                    </div>
-                    <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:10px;">
-                        ${weakRows}
-                    </div>
-
+                    <div class="section-title-bar" style="margin-top:20px;"><div class="stb-icon">⚠️</div><div class="stb-text"><h3>نقاط الضعف (متوسط النسبة لكل قسم)</h3></div></div>
+                    <div class="sum-grid" style="grid-template-columns:1fr;">${weakRows}</div>
                 </div>
-
-                <script>
-                (function() {
-                    if (typeof Chart === 'undefined') {
-                        var s = document.createElement('script');
-                        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js';
-                        s.onload = function() { window._renderAnalysisCharts && window._renderAnalysisCharts(); };
-                        document.head.appendChild(s);
-                    } else {
-                        window._renderAnalysisCharts && window._renderAnalysisCharts();
-                    }
-
-                    var trendData = ${trendJSON};
-                    var trendLabels = ${trendLabelsJSON};
-
-                    // Compute donut data from sectionScores
-                    var sectionPcts = ${JSON.stringify(sortedSections.map(s=>s.pct))};
-                    var good = sectionPcts.filter(p=>p>=80).length;
-                    var mid  = sectionPcts.filter(p=>p>=50&&p<80).length;
-                    var bad  = sectionPcts.filter(p=>p>0&&p<50).length;
-                    var none = sectionPcts.filter(p=>p===0).length;
-
-                    window._renderAnalysisCharts = function() {
-                        // Trend Chart
-                        var tc = document.getElementById('analysisTrendChart');
-                        if (tc && trendData.length > 0) {
-                            new Chart(tc, {
-                                type: 'line',
-                                data: {
-                                    labels: trendLabels,
-                                    datasets: [{
-                                        label: 'متوسط الامتثال',
-                                        data: trendData,
-                                        borderColor: '#1a6faf',
-                                        backgroundColor: 'rgba(26,111,175,0.08)',
-                                        borderWidth: 2,
-                                        fill: true,
-                                        tension: 0.4,
-                                        pointBackgroundColor: '#1a6faf',
-                                        pointRadius: 4,
-                                        pointHoverRadius: 6
-                                    }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    plugins: {
-                                        legend: { display: false },
-                                        tooltip: {
-                                            callbacks: {
-                                                label: function(ctx) { return ' ' + ctx.parsed.y + '%'; }
-                                            }
-                                        }
-                                    },
-                                    scales: {
-                                        x: {
-                                            ticks: { font: { family: 'Cairo, sans-serif', size: 11 }, color: '#5a6a7e', maxRotation: 45 },
-                                            grid: { color: 'rgba(0,0,0,0.05)' }
-                                        },
-                                        y: {
-                                            min: 0, max: 100,
-                                            ticks: { font: { family: 'Cairo, sans-serif', size: 11 }, color: '#5a6a7e', callback: function(v){ return v + '%'; } },
-                                            grid: { color: 'rgba(0,0,0,0.05)' }
-                                        }
-                                    }
-                                }
-                            });
-                        }
-
-                        // Donut Chart
-                        var dc = document.getElementById('analysisDonutChart');
-                        if (dc) {
-                            var donutData = [good, mid, bad];
-                            if (none > 0) donutData.push(none);
-                            var donutLabels = ['جيد', 'متوسط', 'ضعيف'];
-                            var donutColors = ['#1a8a4a', '#e8a020', '#c0392b'];
-                            if (none > 0) { donutLabels.push('بلا بيانات'); donutColors.push('#d4dde8'); }
-                            new Chart(dc, {
-                                type: 'doughnut',
-                                data: {
-                                    labels: donutLabels,
-                                    datasets: [{ data: donutData, backgroundColor: donutColors, borderWidth: 2, borderColor: '#fff' }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    cutout: '65%',
-                                    plugins: {
-                                        legend: { display: false },
-                                        tooltip: {
-                                            callbacks: {
-                                                label: function(ctx) { return ' ' + ctx.label + ': ' + ctx.parsed + ' أقسام'; }
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                        }
-                    };
-
-                    if (typeof Chart !== 'undefined') {
-                        window._renderAnalysisCharts();
-                    }
-                })();
-                <\/script>
             `;
             document.getElementById('mainContent').innerHTML = html;
 
@@ -7856,7 +7722,7 @@ files['xl/workbook.xml'] = new TextEncoder().encode(workbook);
             document.getElementById('applyAnalysisFilters').onclick = () => {
                 currentAnalysisFilters = {
                     hospitalName: document.getElementById('analysisHospital').value,
-                    governorate: document.getElementById('analysisGovernorate')?.value || '',
+                    governorate: document.getElementById('analysisGovernorate').value,
                     year: document.getElementById('analysisYear').value,
                     month: document.getElementById('analysisMonth').value
                 };
