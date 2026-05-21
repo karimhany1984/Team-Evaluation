@@ -2295,70 +2295,43 @@ async function importExcelWithOptions(file, importMode = 'new') {
     const sheet = new TextDecoder().decode(files['xl/worksheets/sheet1.xml']);
     const ss_xml = new TextDecoder().decode(files['xl/sharedStrings.xml']);
     
-    // Parse shared strings safely (no catastrophic backtracking on large files).
-    // Uses indexOf instead of [\s\S]*? regex on the full 200KB string.
+    // Parse shared strings safely (indexOf, no backtracking)
     const ssItems = [];
     {
-        const openTag = '<si>';
-        const closeTag = '</si>';
-        let pos = 0;
+        const _o = '<si>', _c = '</si>';
+        let _p = 0;
         while (true) {
-            const start = ss_xml.indexOf(openTag, pos);
-            if (start === -1) break;
-            const end = ss_xml.indexOf(closeTag, start + openTag.length);
-            if (end === -1) break;
-            const inner = ss_xml.slice(start + openTag.length, end);
-            // Collect all <t> text runs (handles plain and rich-text <r><t> runs)
-            let txt = '';
-            let tp = 0;
+            const _s = ss_xml.indexOf(_o, _p); if (_s === -1) break;
+            const _e = ss_xml.indexOf(_c, _s + _o.length); if (_e === -1) break;
+            const _inn = ss_xml.slice(_s + _o.length, _e);
+            let _txt = '', _tp = 0;
             while (true) {
-                const ts = inner.indexOf('<t', tp);
-                if (ts === -1) break;
-                const te = inner.indexOf('>', ts);
-                if (te === -1) break;
-                const tc = inner.indexOf('</t>', te);
-                if (tc === -1) break;
-                txt += inner.slice(te + 1, tc);
-                tp = tc + 4;
+                const _ts = _inn.indexOf('<t', _tp); if (_ts === -1) break;
+                const _te = _inn.indexOf('>', _ts); if (_te === -1) break;
+                const _tc = _inn.indexOf('</t>', _te); if (_tc === -1) break;
+                _txt += _inn.slice(_te + 1, _tc); _tp = _tc + 4;
             }
-            ssItems.push(txt.trim());
-            pos = end + closeTag.length;
+            ssItems.push(_txt.trim()); _p = _e + _c.length;
         }
     }
 
-    // Read metadata from sheet2 — no regex on full XML; uses indexOf for safety
+    // Read metadata from sheet2
     const sheet2_xml = new TextDecoder().decode(files['xl/worksheets/sheet2.xml']);
     const readSheetCell = (sheetXml, sharedStrings, cellRef) => {
-        const cellOpen = 'r="' + cellRef + '"';
-        const idx = sheetXml.indexOf(cellOpen);
-        if (idx === -1) return '';
-        const cStart = sheetXml.lastIndexOf('<c ', idx);
-        if (cStart === -1) return '';
-        const cEnd = sheetXml.indexOf('</c>', cStart);
-        if (cEnd === -1) return '';
-        const xml = sheetXml.slice(cStart, cEnd + 4);
-        const tMatch = xml.match(/\bt="([^"]*)"/);
-        const cellType = tMatch ? tMatch[1] : '';
-        const vStart = xml.indexOf('<v>');
-        const vEnd = xml.indexOf('</v>');
-        const rawVal = (vStart !== -1 && vEnd !== -1) ? xml.slice(vStart + 3, vEnd) : '';
-        if (cellType === 's') {
-            const si = parseInt(rawVal);
-            return (!isNaN(si) && sharedStrings[si] !== undefined) ? sharedStrings[si] : '';
-        }
-        if (cellType === 'inlineStr') {
-            const isStart = xml.indexOf('<is>');
-            const isEnd = xml.indexOf('</is>');
-            if (isStart !== -1 && isEnd !== -1) {
-                const isInner = xml.slice(isStart + 4, isEnd);
-                const tS = isInner.indexOf('<t');
-                const tE = isInner.indexOf('>', tS);
-                const tC = isInner.indexOf('</t>', tE);
-                return tS !== -1 ? isInner.slice(tE + 1, tC).trim() : '';
-            }
-        }
-        // 'str' (formula result) or plain number — raw value is correct
-        return rawVal.trim();
+        const _mk = 'r="' + cellRef + '"';
+        const _i = sheetXml.indexOf(_mk); if (_i === -1) return '';
+        const _cs = sheetXml.lastIndexOf('<c ', _i); if (_cs === -1) return '';
+        const _te = sheetXml.indexOf('>', _cs);
+        if (_te !== -1 && sheetXml[_te - 1] === '/') return ''; // self-closing = empty
+        const _ce = sheetXml.indexOf('</c>', _cs); if (_ce === -1) return '';
+        const _xml = sheetXml.slice(_cs, _ce + 4);
+        const _tm = _xml.match(/\bt="([^"]*)"/);
+        const _type = _tm ? _tm[1] : '';
+        const _vs = _xml.indexOf('<v>'), _ve = _xml.indexOf('</v>');
+        if (_vs === -1 || _ve === -1) return '';
+        const _raw = _xml.slice(_vs + 3, _ve).trim();
+        if (_type === 's') { const _si = parseInt(_raw); return (!isNaN(_si) && sharedStrings[_si] !== undefined) ? sharedStrings[_si] : ''; }
+        return _raw;
     };
     
     const importedMeta = {
@@ -2368,58 +2341,45 @@ async function importExcelWithOptions(file, importMode = 'new') {
         type: readSheetCell(sheet2_xml, ssItems, 'D3')
     };
     
-    // Read scores — indexOf-based row lookup avoids regex backtracking on large sheet XMLs.
+    // Read scores — row-index, no regex on full XML
     const importedScores = {};
     const importedNotes = {};
-
-    // Pre-index sheet1 rows by row number for O(1) access
-    const rowIndex = {};
-    {
-        let pos = 0;
-        while (true) {
-            const rs = sheet.indexOf('<row ', pos);
-            if (rs === -1) break;
-            const re2 = sheet.indexOf('</row>', rs);
-            if (re2 === -1) break;
-            const rowXml = sheet.slice(rs, re2 + 6);
-            const rMatch = rowXml.match(/\br="(\d+)"/);
-            if (rMatch) rowIndex[parseInt(rMatch[1])] = rowXml;
-            pos = re2 + 6;
-        }
+    const _rowIdx = {};
+    { let _p = 0;
+      while (true) {
+        const _rs = sheet.indexOf('<row ', _p); if (_rs === -1) break;
+        const _re = sheet.indexOf('</row>', _rs); if (_re === -1) break;
+        const _rx = sheet.slice(_rs, _re + 6);
+        const _rm = _rx.match(/\br="(\d+)"/);
+        if (_rm) _rowIdx[parseInt(_rm[1])] = _rx;
+        _p = _re + 6;
+      }
     }
-
-    // Read a specific column cell from a pre-extracted row XML
-    const readCellFromRow = (rowXml, col, rowNum) => {
-        const cellRef = col + rowNum;
-        const cidx = rowXml.indexOf('r="' + cellRef + '"');
-        if (cidx === -1) return null;
-        const cStart = rowXml.lastIndexOf('<c ', cidx);
-        if (cStart === -1) return null;
-        const cEnd = rowXml.indexOf('</c>', cStart);
-        if (cEnd === -1) return null;
-        const xml = rowXml.slice(cStart, cEnd + 4);
-        const tMatch = xml.match(/\bt="([^"]*)"/);
-        const cellType = tMatch ? tMatch[1] : '';
-        const vStart = xml.indexOf('<v>');
-        const vEnd = xml.indexOf('</v>');
-        if (vStart === -1 || vEnd === -1) return null;
-        const rawVal = xml.slice(vStart + 3, vEnd).trim();
-        if (cellType === 's') {
-            const si = parseInt(rawVal);
-            return (!isNaN(si) && ssItems[si] !== undefined) ? ssItems[si] : rawVal;
-        }
-        return rawVal;
+    const _readCell = (rowXml, col, rowNum) => {
+        const _ref = col + rowNum;
+        const _ci = rowXml.indexOf('r="' + _ref + '"'); if (_ci === -1) return null;
+        const _cs = rowXml.lastIndexOf('<c ', _ci); if (_cs === -1) return null;
+        const _te = rowXml.indexOf('>', _cs);
+        if (_te !== -1 && rowXml[_te - 1] === '/') return null;
+        const _ce = rowXml.indexOf('</c>', _cs); if (_ce === -1) return null;
+        const _xml = rowXml.slice(_cs, _ce + 4);
+        const _tm = _xml.match(/\bt="([^"]*)"/);
+        const _type = _tm ? _tm[1] : '';
+        const _vs = _xml.indexOf('<v>'), _ve = _xml.indexOf('</v>');
+        if (_vs === -1 || _ve === -1) return null;
+        const _raw = _xml.slice(_vs + 3, _ve).trim();
+        if (_type === 's') { const _si = parseInt(_raw); return (!isNaN(_si) && ssItems[_si] !== undefined) ? ssItems[_si] : _raw; }
+        return _raw;
     };
-
     FORM_DATA.forEach(sec => {
         let idx = 0;
         sec.subsections.forEach(sub => sub.items.forEach(() => {
             const mapKey = sec.key + '__' + idx;
             const exRow = ROW_MAP[mapKey];
             if (exRow) {
-                const rowXml = rowIndex[exRow];
+                const rowXml = _rowIdx[exRow];
                 if (rowXml) {
-                    const cVal = readCellFromRow(rowXml, 'C', exRow);
+                    const cVal = _readCell(rowXml, 'C', exRow);
                     if (cVal !== null) {
                         const v = cVal.trim();
                         if (v === 'N/A') importedScores[mapKey] = 'N/A';
@@ -2427,7 +2387,7 @@ async function importExcelWithOptions(file, importMode = 'new') {
                         else if (v === '1' || v === '1.0') importedScores[mapKey] = 1;
                         else if (v === '2' || v === '2.0') importedScores[mapKey] = 2;
                     }
-                    const dVal = readCellFromRow(rowXml, 'D', exRow);
+                    const dVal = _readCell(rowXml, 'D', exRow);
                     if (dVal && dVal.trim()) importedNotes[mapKey] = dVal.trim();
                 }
             }
@@ -2448,6 +2408,15 @@ async function importExcelWithOptions(file, importMode = 'new') {
         buildSidebarNav();
         updateProgress();
         showHome();
+        // Ensure imported hospital name appears in dropdown
+        if (meta.hospitalName) {
+            const hnSel = document.getElementById('hospitalName');
+            if (hnSel) {
+                const exists = Array.from(hnSel.options).some(o => o.value === meta.hospitalName);
+                if (!exists) { const opt = document.createElement('option'); opt.value = meta.hospitalName; opt.textContent = meta.hospitalName; hnSel.appendChild(opt); }
+                hnSel.value = meta.hospitalName;
+            }
+        }
         showToast('✓ تم استبدال البيانات الحالية');
     } else if (importMode === 'merge') {
         // Merge: keep existing scores, only fill empty ones
@@ -6213,7 +6182,7 @@ function escapeHtml(str) {
       <label for="hospitalName">اسم المستشفى</label>
       <select id="hospitalName" name="hospitalName" onchange="meta.hospitalName=this.value;debounceSave()">
         <option value="">-- اختر المستشفى --</option>
-        ${["مستشفى أطفال الرمل", "مستشفى ابو قير", "مستشفى اطفال الانفوشى", "مستشفى اطفال فوزى معاذ", "مستشفى الجمهورية العام", "مستشفى الرمد العام", "مستشفى العامريه العام", "مستشفى برج العرب", "مستشفى جمال حماده", "مستشفى حميات اسكندريه", "مستشفى دار اسماعيل للنساء والتوليد", "مستشفى رأس التين العام", "مستشفى صدر المعموره", "مستشفى صدر كوم الشقافة", "مستشفى صلاح العوضى للنساء والتوليد"]
+        ${["مستشفى أطفال الرمل", "مستشفى ابو قير", "مستشفى اطفال الانفوشى", "مستشفى اطفال فوزى معاذ", "مستشفى الجمهورية العام", "مستشفى الرمد العام", "مستشفى العامريه العام", "مستشفى برج العرب", "مستشفى جمال حماده", "مستشفى حميات اسكندريه", "مستشفى دار اسماعيل للنساء والتوليد", "مستشفى رأس التين العام", "مستشفى صدر المعموره", "مستشفى صدر كوم الشقافة", "مستشفى صلاح العوضى للنساء والتوليد", "مركز اسنان محرم بك", "مركز اسنان سموحة"]
                     .map(t => `<option value="${t}" ${meta.hospitalName === t ? 'selected' : ''}>${t}</option>`)
                     .join('')}
       </select>
@@ -6222,7 +6191,7 @@ function escapeHtml(str) {
                 <label for="type">نوع المستشفى</label>
       <select id="type" name="type" onchange="meta.type=this.value;debounceSave()">
                   <option value="">-- اختر --</option>
-                  ${['عام', 'مركزى', 'تخصصى'].map(t => `<option ${meta.type === t ? 'selected' : ''}>${t}</option>`).join('')}
+                  ${['عام', 'مركزى', 'تخصصى', 'مركز اسنان'].map(t => `<option ${meta.type === t ? 'selected' : ''}>${t}</option>`).join('')}
                 </select>
               </div>
              <div class="meta-field">
@@ -6776,58 +6745,43 @@ function setNote(ik, val) {
                 // ── READ METADATA from sheet2 cells ──
                 const sheet2_xml = new TextDecoder().decode(files['xl/worksheets/sheet2.xml']);
 
-
-                // Parse shared strings safely (no regex backtracking on large files)
-                const ssItems = [];
-                {
-                    const _open = '<si>', _close = '</si>';
-                    let _pos = 0;
-                    while (true) {
-                        const _s = ss_xml.indexOf(_open, _pos);
-                        if (_s === -1) break;
-                        const _e = ss_xml.indexOf(_close, _s + _open.length);
-                        if (_e === -1) break;
-                        const _inner = ss_xml.slice(_s + _open.length, _e);
-                        let _txt = '', _tp = 0;
-                        while (true) {
-                            const _ts = _inner.indexOf('<t', _tp);
-                            if (_ts === -1) break;
-                            const _te = _inner.indexOf('>', _ts);
-                            if (_te === -1) break;
-                            const _tc = _inner.indexOf('</t>', _te);
-                            if (_tc === -1) break;
-                            _txt += _inner.slice(_te + 1, _tc);
-                            _tp = _tc + 4;
-                        }
-                        ssItems.push(_txt.trim());
-                        _pos = _e + _close.length;
-                    }
-                }
-
-                // Read a cell value — safe indexOf approach, handles self-closing cells
+                // Read a cell value from any sheet xml (handles t="s", t="str", numeric)
                 const readSheetCell = (sheetXml, sharedStrings, cellRef) => {
-                    const _marker = 'r="' + cellRef + '"';
-                    const _idx = sheetXml.indexOf(_marker);
-                    if (_idx === -1) return '';
-                    const _cStart = sheetXml.lastIndexOf('<c ', _idx);
-                    if (_cStart === -1) return '';
-                    // Check for self-closing cell (no value): <c r="X" .../>
-                    const _tagEnd = sheetXml.indexOf('>', _cStart);
-                    if (_tagEnd !== -1 && sheetXml[_tagEnd - 1] === '/') return '';
-                    const _cEnd = sheetXml.indexOf('</c>', _cStart);
-                    if (_cEnd === -1) return '';
-                    const _xml = sheetXml.slice(_cStart, _cEnd + 4);
-                    const _tM = _xml.match(/\bt="([^"]*)"/);
-                    const _type = _tM ? _tM[1] : '';
+                    const _mk = 'r="' + cellRef + '"';
+                    const _i = sheetXml.indexOf(_mk); if (_i === -1) return '';
+                    const _cs = sheetXml.lastIndexOf('<c ', _i); if (_cs === -1) return '';
+                    const _te = sheetXml.indexOf('>', _cs);
+                    if (_te !== -1 && sheetXml[_te - 1] === '/') return ''; // self-closing = empty
+                    const _ce = sheetXml.indexOf('</c>', _cs); if (_ce === -1) return '';
+                    const _xml = sheetXml.slice(_cs, _ce + 4);
+                    const _tm = _xml.match(/\bt="([^"]*)"/);
+                    const _type = _tm ? _tm[1] : '';
                     const _vs = _xml.indexOf('<v>'), _ve = _xml.indexOf('</v>');
                     if (_vs === -1 || _ve === -1) return '';
                     const _raw = _xml.slice(_vs + 3, _ve).trim();
-                    if (_type === 's') {
-                        const _si = parseInt(_raw);
-                        return (!isNaN(_si) && sharedStrings[_si] !== undefined) ? sharedStrings[_si] : '';
-                    }
+                    if (_type === 's') { const _si = parseInt(_raw); return (!isNaN(_si) && sharedStrings[_si] !== undefined) ? sharedStrings[_si] : ''; }
                     return _raw;
                 };
+
+                // Parse shared strings for metadata reading
+                const ssItems = [];
+                {
+                    const _o = '<si>', _c = '</si>';
+                    let _p = 0;
+                    while (true) {
+                        const _s = ss_xml.indexOf(_o, _p); if (_s === -1) break;
+                        const _e = ss_xml.indexOf(_c, _s + _o.length); if (_e === -1) break;
+                        const _inn = ss_xml.slice(_s + _o.length, _e);
+                        let _txt = '', _tp = 0;
+                        while (true) {
+                            const _ts = _inn.indexOf('<t', _tp); if (_ts === -1) break;
+                            const _te = _inn.indexOf('>', _ts); if (_te === -1) break;
+                            const _tc = _inn.indexOf('</t>', _te); if (_tc === -1) break;
+                            _txt += _inn.slice(_te + 1, _tc); _tp = _tc + 4;
+                        }
+                        ssItems.push(_txt.trim()); _p = _e + _c.length;
+                    }
+                }
 
                 // Read metadata from sheet2
                 
@@ -6841,10 +6795,24 @@ function setNote(ik, val) {
                 meta.hospitalName = rawHosp.trim();
                 meta.inspectors = rawInsp.trim();
                 meta.type = rawType.trim();
+                // If imported hospital name isn't in the dropdown, add it dynamically
+                if (meta.hospitalName) {
+                    const hnSel = document.getElementById('hospitalName');
+                    if (hnSel) {
+                        const exists = Array.from(hnSel.options).some(o => o.value === meta.hospitalName);
+                        if (!exists) {
+                            const opt = document.createElement('option');
+                            opt.value = meta.hospitalName;
+                            opt.textContent = meta.hospitalName;
+                            hnSel.appendChild(opt);
+                        }
+                        hnSel.value = meta.hospitalName;
+                    }
+                }
 
                 // ── READ SCORES ──
                 scores = {};
-                // Read scores using row-index (no regex on full sheet XML)
+                
                 const _rowIdx = {};
                 { let _p = 0;
                   while (true) {
@@ -6861,7 +6829,7 @@ function setNote(ik, val) {
                     const _ci = rowXml.indexOf('r="' + _ref + '"'); if (_ci === -1) return null;
                     const _cs = rowXml.lastIndexOf('<c ', _ci); if (_cs === -1) return null;
                     const _te = rowXml.indexOf('>', _cs);
-                    if (_te !== -1 && rowXml[_te - 1] === '/') return null; // self-closing
+                    if (_te !== -1 && rowXml[_te - 1] === '/') return null;
                     const _ce = rowXml.indexOf('</c>', _cs); if (_ce === -1) return null;
                     const _xml = rowXml.slice(_cs, _ce + 4);
                     const _tm = _xml.match(/\bt="([^"]*)"/);
@@ -6925,31 +6893,23 @@ function setNote(ik, val) {
                 const sheet = new TextDecoder().decode(files['xl/worksheets/sheet1.xml']);
                 const ss_xml = new TextDecoder().decode(files['xl/sharedStrings.xml']);
 
-
-                // Parse shared strings safely (no regex backtracking on large files)
+                // Parse shared strings safely
                 const ssItems = [];
                 {
-                    const _open = '<si>', _close = '</si>';
-                    let _pos = 0;
+                    const _o = '<si>', _c = '</si>';
+                    let _p = 0;
                     while (true) {
-                        const _s = ss_xml.indexOf(_open, _pos);
-                        if (_s === -1) break;
-                        const _e = ss_xml.indexOf(_close, _s + _open.length);
-                        if (_e === -1) break;
-                        const _inner = ss_xml.slice(_s + _open.length, _e);
+                        const _s = ss_xml.indexOf(_o, _p); if (_s === -1) break;
+                        const _e = ss_xml.indexOf(_c, _s + _o.length); if (_e === -1) break;
+                        const _inn = ss_xml.slice(_s + _o.length, _e);
                         let _txt = '', _tp = 0;
                         while (true) {
-                            const _ts = _inner.indexOf('<t', _tp);
-                            if (_ts === -1) break;
-                            const _te = _inner.indexOf('>', _ts);
-                            if (_te === -1) break;
-                            const _tc = _inner.indexOf('</t>', _te);
-                            if (_tc === -1) break;
-                            _txt += _inner.slice(_te + 1, _tc);
-                            _tp = _tc + 4;
+                            const _ts = _inn.indexOf('<t', _tp); if (_ts === -1) break;
+                            const _te = _inn.indexOf('>', _ts); if (_te === -1) break;
+                            const _tc = _inn.indexOf('</t>', _te); if (_tc === -1) break;
+                            _txt += _inn.slice(_te + 1, _tc); _tp = _tc + 4;
                         }
-                        ssItems.push(_txt.trim());
-                        _pos = _e + _close.length;
+                        ssItems.push(_txt.trim()); _p = _e + _c.length;
                     }
                 }
 
