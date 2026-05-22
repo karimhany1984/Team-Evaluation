@@ -12,37 +12,181 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon.png">
 <script>
+    // ── Service Worker: register only, NO auto-update ──────────────────
+    window._swReg = null;
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
             navigator.serviceWorker.register('./sw.js').then(reg => {
-                console.log('Service Worker registered successfully');
-                
-                // Check for updates every 60 seconds
-                setInterval(() => {
-                    reg.update();
-                }, 60000);
-                
-                // Handle controller change (new SW takes over)
-                let refreshing = false;
-                navigator.serviceWorker.addEventListener('controllerchange', () => {
-                    if (!refreshing) {
-                        refreshing = true;
-                        console.log('New Service Worker activated, reloading...');
-                        alert('🔄 تم تحديث التطبيق! سيتم إعادة التحميل الآن');
-                        window.location.reload();
-                    }
-                });
-                
-                // Check if there's a waiting service worker
-                if (reg.waiting) {
-                    console.log('Found waiting service worker');
-                    reg.waiting.postMessage({type: 'SKIP_WAITING'});
-                }
-                
+                window._swReg = reg;
+                // Do NOT auto-call reg.update() or postMessage SKIP_WAITING
+                // User must press the update button manually
             }).catch(err => {
                 console.log('Service Worker registration failed:', err);
             });
         });
+    }
+
+    // ── Manual update checker ───────────────────────────────────────────
+    // Compares CACHE_NAME in the live sw.js on GitHub with the currently
+    // active SW.  If they differ, an update is available.
+    const CURRENT_SW_URL = './sw.js';
+
+    async function checkForUpdate() {
+        const btn = document.getElementById('updateCheckBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '🔄 جارى الفحص...'; }
+
+        try {
+            // 1. Fetch the live sw.js (bypass cache)
+            const res = await fetch(CURRENT_SW_URL + '?_=' + Date.now(), { cache: 'no-store' });
+            if (!res.ok) throw new Error('network');
+            const text = await res.text();
+
+            // 2. Extract CACHE_NAME from the fetched sw.js
+            const remoteMatch = text.match(/const CACHE_NAME\s*=\s*['"]([^'"]+)['"]/);
+            if (!remoteMatch) throw new Error('parse');
+            const remoteCacheName = remoteMatch[1];
+
+            // 3. Ask the active SW for its CACHE_NAME via MessageChannel
+            let localCacheName = null;
+            if (window._swReg && navigator.serviceWorker.controller) {
+                localCacheName = await new Promise((resolve) => {
+                    const mc = new MessageChannel();
+                    const timer = setTimeout(() => resolve(null), 3000);
+                    mc.port1.onmessage = (e) => {
+                        clearTimeout(timer);
+                        resolve(e.data && e.data.cacheName ? e.data.cacheName : null);
+                    };
+                    navigator.serviceWorker.controller.postMessage({ type: 'GET_CACHE_NAME' }, [mc.port2]);
+                });
+            }
+
+            // 4. Compare
+            if (localCacheName && remoteCacheName === localCacheName) {
+                showUpdateToast('✅ التطبيق محدّث — لا توجد تحديثات جديدة', 'green', 4000);
+                if (btn) { btn.disabled = false; btn.textContent = '🔔 تحقق من التحديثات'; }
+                return;
+            }
+
+            // 5. Update available — ask user
+            showUpdateToast('', 'none', 0, true, remoteCacheName);
+
+        } catch (e) {
+            showUpdateToast('⚠️ تعذّر الاتصال للتحقق من التحديثات', 'orange', 4000);
+            if (btn) { btn.disabled = false; btn.textContent = '🔔 تحقق من التحديثات'; }
+        }
+    }
+
+    async function applyUpdate() {
+        // Dismiss confirm panel
+        const panel = document.getElementById('updateConfirmPanel');
+        if (panel) panel.remove();
+        const btn = document.getElementById('updateCheckBtn');
+        if (btn) { btn.disabled = true; }
+
+        showUpdateToast('⏳ جارى التحديث... لا تغلق التطبيق', 'blue', 0);
+
+        try {
+            // Force SW to fetch new files
+            if (window._swReg) await window._swReg.update();
+
+            // Tell waiting SW to take over
+            const reg = await navigator.serviceWorker.ready;
+            if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+
+            // Reload 3 times with short delays to fully flush caches
+            let count = 0;
+            const doReload = () => {
+                count++;
+                showUpdateToast('🔄 إعادة تحميل ' + count + ' / 3 ...', 'blue', 0);
+                setTimeout(() => {
+                    if (count < 3) {
+                        window.location.reload(true);
+                    } else {
+                        window.location.reload(true);
+                    }
+                }, 1200);
+            };
+
+            // Listen for controller change (SW activated) then start reload chain
+            let reloadCount = 0;
+            const onController = () => {
+                reloadCount++;
+                showUpdateToast('🔄 إعادة تحميل ' + reloadCount + ' / 3 ...', 'blue', 0);
+                if (reloadCount < 3) {
+                    setTimeout(() => window.location.reload(true), 1000);
+                } else {
+                    setTimeout(() => {
+                        navigator.serviceWorker.removeEventListener('controllerchange', onController);
+                        showUpdateToast('✅ تم التحديث بنجاح!', 'green', 5000);
+                        if (btn) { btn.disabled = false; btn.textContent = '🔔 تحقق من التحديثات'; }
+                    }, 800);
+                }
+            };
+            navigator.serviceWorker.addEventListener('controllerchange', onController);
+
+            // Fallback: if no controllerchange fires in 4s, do manual reloads
+            setTimeout(() => {
+                navigator.serviceWorker.removeEventListener('controllerchange', onController);
+                doReload();
+            }, 4000);
+
+        } catch(e) {
+            showUpdateToast('❌ فشل التحديث. حاول مجدداً', 'red', 5000);
+            if (btn) { btn.disabled = false; btn.textContent = '🔔 تحقق من التحديثات'; }
+        }
+    }
+
+    function showUpdateToast(msg, color, duration, showConfirm, remoteName) {
+        // Remove any existing update UI
+        ['updateToastBar','updateConfirmPanel'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        });
+        if (!msg && !showConfirm) return;
+
+        const colorMap = { green:'#1a8a4a', blue:'#1a6faf', orange:'#e8a020', red:'#c0392b', none:'' };
+        const bg = colorMap[color] || '#1a6faf';
+
+        if (showConfirm) {
+            // Confirmation panel
+            const panel = document.createElement('div');
+            panel.id = 'updateConfirmPanel';
+            panel.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
+                'background:#fff;border:2px solid #1a6faf;border-radius:14px;padding:18px 20px;' +
+                'z-index:9999;box-shadow:0 4px 24px rgba(0,0,0,0.18);min-width:280px;max-width:340px;' +
+                'text-align:center;direction:rtl;font-family:inherit;';
+            panel.innerHTML =
+                '<div style="font-size:22px;margin-bottom:6px;">🆕</div>' +
+                '<div style="font-weight:700;color:#1a2533;margin-bottom:4px;">يوجد تحديث جديد</div>' +
+                '<div style="font-size:12px;color:#5a6a7e;margin-bottom:14px;">' +
+                    (remoteName ? 'الإصدار الجديد: <b>' + remoteName + '</b>' : '') +
+                '</div>' +
+                '<div style="display:flex;gap:10px;justify-content:center;">' +
+                    '<button onclick="applyUpdate()" style="background:#1a6faf;color:#fff;border:none;' +
+                        'border-radius:8px;padding:9px 20px;font-size:14px;font-family:inherit;cursor:pointer;font-weight:600;">' +
+                        '✅ تحديث الآن</button>' +
+                    '<button onclick="document.getElementById('updateConfirmPanel').remove();' +
+                        'document.getElementById('updateCheckBtn').disabled=false;' +
+                        'document.getElementById('updateCheckBtn').textContent='🔔 تحقق من التحديثات';" ' +
+                        'style="background:#f0f4f8;color:#1a2533;border:1px solid #d4dde8;' +
+                        'border-radius:8px;padding:9px 20px;font-size:14px;font-family:inherit;cursor:pointer;">' +
+                        '⏭️ لاحقاً</button>' +
+                '</div>';
+            document.body.appendChild(panel);
+            const btn = document.getElementById('updateCheckBtn');
+            if (btn) { btn.disabled = false; btn.textContent = '🔔 تحقق من التحديثات'; }
+            return;
+        }
+
+        const bar = document.createElement('div');
+        bar.id = 'updateToastBar';
+        bar.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);' +
+            'background:' + bg + ';color:#fff;padding:11px 22px;border-radius:24px;' +
+            'z-index:9999;font-size:14px;font-family:inherit;direction:rtl;' +
+            'box-shadow:0 3px 16px rgba(0,0,0,0.22);white-space:nowrap;pointer-events:none;';
+        bar.textContent = msg;
+        document.body.appendChild(bar);
+        if (duration > 0) setTimeout(() => { if (bar.parentNode) bar.remove(); }, duration);
     }
 </script>
 <title>إدارة متابعة المديريات</title>
@@ -1179,6 +1323,9 @@ button, .nav-item, .nav-card, .qa-btn, .sec-nav-btn, .mobile-nav-btn, .hbtn {
             </button>
             <button class="hbtn hbtn-ghost hbtn-desktop" onclick="openMergeDialog()" title="دمج تقرير مفتش آخر">
                 <span class="icon-sm">🔗</span> دمج تقرير
+            </button>
+            <button id="updateCheckBtn" class="hbtn hbtn-ghost" onclick="checkForUpdate()" title="تحقق من وجود تحديثات">
+                <span class="icon-sm">🔔</span> <span class="hbtn-desktop">تحقق من التحديثات</span>
             </button>
             <button class="hbtn hbtn-accent" onclick="exportExcel()">
                 <span class="icon-sm">📥</span> <span class="hbtn-desktop">Excel</span><span class="hbtn-mobile">تصدير</span>
