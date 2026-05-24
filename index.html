@@ -2816,7 +2816,7 @@ async function renderReportsList(filters = { hospitalName: '', year: '', month: 
             </div>
             ${filterBarHtml}
             <div class="quick-actions">
-                <button class="qa-btn" onclick="showHome()">🏠 الرئيسية</button>
+                
                 <button class="qa-btn green" onclick="saveCurrentToDatabase()">💾 حفظ الحالي</button>
                 <button class="qa-btn" onclick="exportAllReports()">📦 تصدير الكل</button>
                 <button class="qa-btn" onclick="importDatabaseFromJSON()">📂 استيراد JSON</button>
@@ -6558,7 +6558,7 @@ function escapeHtml(str) {
           <div class="quick-actions">
             
             <button class="qa-btn" style="background:var(--primary);color:#fff;" onclick="exportWord()">📄 تصدير Word</button>
-            <button class="qa-btn" onclick="showHome()">🏠 الرئيسية</button>
+            
           </div>
           <div class="sum-grid">${cardsHtml}</div>
         </div>`;
