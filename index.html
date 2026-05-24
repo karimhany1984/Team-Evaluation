@@ -6270,7 +6270,7 @@ function escapeHtml(str) {
      function buildSidebarNav() {
     const el = document.getElementById('sidebarNav');
     let html = `<div class="nav-item ${currentSection === 'home' ? 'active' : ''}" onclick="showHome()">
-        <div class="nav-icon ic-summary"></div>
+        <div class="nav-icon">🏠</div>
         <div class="nav-text"><div class="nav-title">الصفحة الرئيسية</div></div>
       </div>
       <div class="nav-item ${currentSection === 'summary' ? 'active' : ''}" onclick="showSection('summary')">
