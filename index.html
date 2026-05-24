@@ -2416,7 +2416,8 @@ async function getAllReports(limit = 50, offset = 0) {
                         totalMax: cursor.value.totalMax,
                         percentage: cursor.value.percentage,
                         savedAt: cursor.value.savedAt,
-                        governorate: cursor.value.governorate
+                        governorate: cursor.value.governorate,
+                        scores: cursor.value.scores || {}
                     });
                 }
                 count++;
@@ -7798,7 +7799,7 @@ files['xl/workbook.xml'] = new TextEncoder().encode(workbook);
             // Mini activity bars (random heights for visual interest)
             const actH = [14,18,12,20,16,10,22].map(h=>`<span style="display:inline-block;width:3px;height:${h}px;border-radius:1px;background:var(--primary);opacity:0.7;"></span>`).join('');
             const dotColor = avg >= 80 ? 'var(--green)' : avg >= 50 ? 'var(--accent)' : 'var(--red)';
-            return `<td>
+            return `<tr>
                 <td style="padding:6px 5px;font-size:12px;color:var(--primary);font-weight:600;">${escapeHtml(name)}</td>
                 <td style="text-align:center;padding:6px 5px;"><div style="display:flex;align-items:flex-end;gap:1px;height:22px;justify-content:center;">${actH}</div></td>
                 <td style="text-align:center;padding:6px 5px;"><div style="display:flex;justify-content:center;align-items:center;gap:3px;"><span style="width:7px;height:7px;border-radius:50%;background:${dotColor};display:inline-block;"></span><span style="font-size:11px;font-weight:700;color:var(--text);">${count}</span></div></td>
@@ -7994,83 +7995,7 @@ files['xl/workbook.xml'] = new TextEncoder().encode(workbook);
             </div>
         </div>
 
-        <script>
-        (function() {
-            if (typeof Chart === 'undefined') {
-                var s = document.createElement('script');
-                s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js';
-                s.onload = function() { window._renderAnalysisCharts && window._renderAnalysisCharts(); };
-                document.head.appendChild(s);
-            } else {
-                window._renderAnalysisCharts && window._renderAnalysisCharts();
-            }
-
-            window._renderAnalysisCharts = function() {
-                // Trend Chart
-                var tc = document.getElementById('analysisTrendChart');
-                if (tc && typeof Chart !== 'undefined' && ${trendData.length} > 0) {
-                    new Chart(tc, {
-                        type: 'line',
-                        data: {
-                            labels: ${JSON.stringify(trendLabels)},
-                            datasets: [{
-                                label: 'متوسط الامتثال',
-                                data: ${JSON.stringify(trendData)},
-                                borderColor: '#1a6faf',
-                                backgroundColor: 'rgba(26,111,175,0.08)',
-                                borderWidth: 2,
-                                fill: true,
-                                tension: 0.4,
-                                pointBackgroundColor: '#1a6faf',
-                                pointRadius: 4,
-                                pointHoverRadius: 6
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: { display: false },
-                                tooltip: { callbacks: { label: function(ctx) { return ' ' + ctx.parsed.y + '%'; } } }
-                            },
-                            scales: {
-                                x: { ticks: { font: { family: 'Cairo, sans-serif', size: 11 }, color: '#5a6a7e', maxRotation: 45 }, grid: { color: 'rgba(0,0,0,0.05)' } },
-                                y: { min: 0, max: 100, ticks: { font: { family: 'Cairo, sans-serif', size: 11 }, color: '#5a6a7e', callback: function(v){ return v + '%'; } }, grid: { color: 'rgba(0,0,0,0.05)' } }
-                            }
-                        }
-                    });
-                }
-
-                // Donut Chart
-                var dc = document.getElementById('analysisDonutChart');
-                if (dc && typeof Chart !== 'undefined') {
-                    var donutData = [${good}, ${mid}, ${bad}];
-                    var donutLabels = ['جيد', 'متوسط', 'ضعيف'];
-                    var donutColors = ['#1a8a4a', '#e8a020', '#c0392b'];
-                    if (${none} > 0) { donutData.push(${none}); donutLabels.push('بلا بيانات'); donutColors.push('#d4dde8'); }
-                    new Chart(dc, {
-                        type: 'doughnut',
-                        data: {
-                            labels: donutLabels,
-                            datasets: [{ data: donutData, backgroundColor: donutColors, borderWidth: 2, borderColor: '#fff' }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            cutout: '65%',
-                            plugins: {
-                                legend: { display: false },
-                                tooltip: { callbacks: { label: function(ctx) { return ' ' + ctx.label + ': ' + ctx.parsed + ' أقسام'; } } }
-                            }
-                        }
-                    });
-                }
-            };
-
-            if (typeof Chart !== 'undefined') window._renderAnalysisCharts();
-        })();
-        <\/script>
-    `;
+    `;   // end html template literal
 
     document.getElementById('mainContent').innerHTML = html;
 
@@ -8088,6 +8013,53 @@ files['xl/workbook.xml'] = new TextEncoder().encode(workbook);
         currentAnalysisFilters = { hospitalName: '', governorate: '', year: '', month: '' };
         renderAnalysis(currentAnalysisFilters);
     };
+
+    // Charts must run after innerHTML — scripts inside innerHTML are never executed by browsers
+    const _tl = trendLabels.slice();
+    const _td = trendData.slice();
+    const _g = good, _m = mid, _b = bad, _n = none;
+
+    function _drawCharts() {
+        var tc = document.getElementById('analysisTrendChart');
+        if (tc && _td.length > 0) {
+            new Chart(tc, {
+                type: 'line',
+                data: {
+                    labels: _tl,
+                    datasets: [{ label: 'متوسط الامتثال', data: _td, borderColor: '#1a6faf', backgroundColor: 'rgba(26,111,175,0.08)', borderWidth: 2, fill: true, tension: 0.4, pointBackgroundColor: '#1a6faf', pointRadius: 4 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return ctx.parsed.y + '%'; } } } },
+                    scales: {
+                        x: { ticks: { font: { family: 'Cairo, sans-serif', size: 11 }, color: '#5a6a7e', maxRotation: 45 }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                        y: { min: 0, max: 100, ticks: { font: { family: 'Cairo, sans-serif', size: 11 }, color: '#5a6a7e', callback: function(v) { return v + '%'; } }, grid: { color: 'rgba(0,0,0,0.05)' } }
+                    }
+                }
+            });
+        }
+        var dc = document.getElementById('analysisDonutChart');
+        if (dc) {
+            var dd = [_g, _m, _b];
+            var dl = ['جيد', 'متوسط', 'ضعيف'];
+            var dc2 = ['#1a8a4a', '#e8a020', '#c0392b'];
+            if (_n > 0) { dd.push(_n); dl.push('بلا بيانات'); dc2.push('#d4dde8'); }
+            new Chart(dc, {
+                type: 'doughnut',
+                data: { labels: dl, datasets: [{ data: dd, backgroundColor: dc2, borderWidth: 2, borderColor: '#fff' }] },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return ctx.label + ': ' + ctx.parsed + ' أقسام'; } } } } }
+            });
+        }
+    }
+
+    if (typeof Chart !== 'undefined') {
+        _drawCharts();
+    } else {
+        var _cs = document.createElement('script');
+        _cs.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js';
+        _cs.onload = _drawCharts;
+        document.head.appendChild(_cs);
+    }
 }
 
         async function exportAnalysisToExcel() {
