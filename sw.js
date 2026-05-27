@@ -158,4 +158,12 @@ self.addEventListener('message', (event) => {
             event.source.postMessage({ type: 'CACHE_NAME', cacheName: CACHE_NAME });
         }
     }
+    if (event.data && event.data.type === 'GET_CACHE_NAME') {
+    const replyPort = event.ports && event.ports[0];
+    if (replyPort) {
+        replyPort.postMessage({ type: 'CACHE_NAME', cacheName: CACHE_NAME, base: BASE }); // ← add base
+    } else if (event.source) {
+        event.source.postMessage({ type: 'CACHE_NAME', cacheName: CACHE_NAME, base: BASE });
+    }
+}
 });
