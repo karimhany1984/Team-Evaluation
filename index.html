@@ -8190,20 +8190,20 @@ files['xl/workbook.xml'] = new TextEncoder().encode(workbook);
             if (!sw) return;
 
             // Ask the SW which cache name it is currently using — no hardcoding needed
-            const cacheName = await new Promise((resolve, reject) => {
+            const { cacheName, base } = await new Promise((resolve, reject) => {
                 const mc = new MessageChannel();
                 const timer = setTimeout(() => reject(new Error('GET_CACHE_NAME timeout')), 3000);
                 mc.port1.onmessage = (e) => {
                     if (e.data && e.data.type === 'CACHE_NAME') {
                         clearTimeout(timer);
-                        resolve({ cacheName: e.data.cacheName, base: e.data.base });
+                        resolve({ cacheName: e.data.cacheName, base: e.data.base })
                     }
                 };
                 sw.postMessage({ type: 'GET_CACHE_NAME' }, [mc.port2]);
             });
 
             // Use absolute URL key — must match what sw.js stored
-            const sharedFileKey = location.origin + cacheName.base + 'shared-file';
+            const sharedFileKey = location.origin + base + 'shared-file';
             const cache = await caches.open(cacheName);
             const response = await cache.match(sharedFileKey);
             if (!response) return;
