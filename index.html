@@ -6329,6 +6329,7 @@ function escapeHtml(str) {
         // ═══════════════════════════════════════
         function showHome() {
             currentSection = 'home';
+			document.getElementById('mainContent').scrollTo({ top: 0, behavior: 'smooth' });
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             document.querySelector('.nav-item')?.classList.add('active');
             document.getElementById('mnHome')?.classList.add('active');
@@ -6416,9 +6417,16 @@ function escapeHtml(str) {
         // ═══════════════════════════════════════
         function showSection(key) {
     if (key === 'home') { showHome(); return; }
-    if (key === 'summary') { currentSection = 'summary'; buildSidebarNav(); renderSummary(); return; }
+   if (key === 'summary') {
+    currentSection = 'summary';
+    document.getElementById('mainContent').scrollTo({ top: 0, behavior: 'smooth' });
+    buildSidebarNav();
+    renderSummary();
+    return;
+}
 
     currentSection = key;
+	document.getElementById('mainContent').scrollTo({ top: 0, behavior: 'smooth' });
     buildSidebarNav();
     document.getElementById('mnHome')?.classList.remove('active');
     document.getElementById('mnSummary')?.classList.remove('active');
