@@ -8196,14 +8196,14 @@ files['xl/workbook.xml'] = new TextEncoder().encode(workbook);
                 mc.port1.onmessage = (e) => {
                     if (e.data && e.data.type === 'CACHE_NAME') {
                         clearTimeout(timer);
-                        resolve(e.data.cacheName);
+                        resolve({ cacheName: e.data.cacheName, base: e.data.base });
                     }
                 };
                 sw.postMessage({ type: 'GET_CACHE_NAME' }, [mc.port2]);
             });
 
             // Use absolute URL key — must match what sw.js stored
-            const sharedFileKey = location.origin + '/hospital-form/shared-file';
+            const sharedFileKey = location.origin + cacheName.base + 'shared-file';
             const cache = await caches.open(cacheName);
             const response = await cache.match(sharedFileKey);
             if (!response) return;
