@@ -1265,6 +1265,11 @@ button, .nav-item, .nav-card, .qa-btn, .sec-nav-btn, .mobile-nav-btn, .hbtn {
 .wpck-btn-export { padding:8px 22px; border-radius:8px; border:none; background:#1a6faf; color:#fff; font-size:.88rem; font-weight:700; cursor:pointer; }
 .wpck-btn-export:hover { background:#155a8a; }
 
+.qa-btn-na  { background: #6c757d; color: #fff; }
+.qa-btn-na:hover  { background: #5a6268; }
+.qa-btn-clr { background: #dc3545; color: #fff; }
+.qa-btn-clr:hover { background: #c82333; }
+
 /* Analysis Styles */
 .analysis-filter-bar {
   background: var(--surface);
@@ -2233,7 +2238,7 @@ button, .nav-item, .nav-card, .qa-btn, .sec-nav-btn, .mobile-nav-btn, .hbtn {
 // INDEXEDDB DATABASE LAYER - Persistent Storage
 // ═══════════════════════════════════════════════════════════════
 
-const DB_NAME = 'HospitalInspectionsDB';
+const DB_NAME = 'Trial_HospitalInspectionsDB';
 const DB_VERSION = 2; // Incremented version for analysis feature
 const STORE_NAME = 'inspection_reports';
 
@@ -6525,8 +6530,10 @@ function escapeHtml(str) {
             <div class="legend-item"><div class="legend-dot dot-na"></div> N/A غير قابل</div>
           </div>
           <!-- ADD THE BUTTON HERE - Right after legend -->
-          <div class="quick-actions" style="margin: 16px 0;">
+          <div class="quick-actions" style="margin: 16px 0; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
             <button class="qa-btn" onclick="scrollToNextUnanswered()">🔍 الانتقال للسؤال التالي غير المجاب</button>
+            <button class="qa-btn qa-btn-na"  onclick="markPageNA()">☑️ تحديد الكل N/A</button>
+            <button class="qa-btn qa-btn-clr" onclick="clearPageScores()">🗑️ مسح إجابات الصفحة</button>
           </div>
           ${subsHtml}
           <div class="sec-nav">
@@ -8287,8 +8294,48 @@ files['xl/workbook.xml'] = new TextEncoder().encode(workbook);
         } else {
             showToast('✓ جميع العناصر في هذا القسم مكتملة!');
         }
-    }
+	}
 }
+
+        // Mark every item on the current page as N/A
+        function markPageNA() {
+            const sec = FORM_DATA.find(s => s.key === currentSection);
+            if (!sec) return;
+            let idx = 0;
+            sec.subsections.forEach(sub => {
+                sub.items.forEach(() => {
+                    const ik = `${currentSection}__${idx}`;
+                    setScore(ik, 'N/A', currentSection);
+                    idx++;
+                });
+            });
+            showToast('تم تحديد جميع الأسئلة كـ N/A');
+        }
+
+        // Clear every score on the current page
+        function clearPageScores() {
+            const sec = FORM_DATA.find(s => s.key === currentSection);
+            if (!sec) return;
+            let idx = 0;
+            sec.subsections.forEach(sub => {
+                sub.items.forEach(() => {
+                    const ik = `${currentSection}__${idx}`;
+                    delete scores[ik];
+                    const row = document.getElementById(`irow-${ik}`);
+                    if (row) {
+                        row.classList.remove('scored-0','scored-1','scored-2','scored-na');
+                        // Remove active class from all score buttons in this row
+                        row.querySelectorAll('.sbtn[data-score]').forEach(b => {
+                            b.classList.remove('s0','s1','s2','sna');
+                        });
+                    }
+                    idx++;
+                });
+            });
+            saveData();
+            updateSidebarScore(currentSection);
+            showToast('تم مسح إجابات الصفحة');
+        }
 
 </script>
 </body>
