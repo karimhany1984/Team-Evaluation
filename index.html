@@ -802,7 +802,7 @@ const EC={
       </div>
     </div>
     <div class="mfoot" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-      <a class="btn btn-gold" href="whatsapp://" style="text-decoration:none">📱 افتح واتساب الآن</a>
+      <a class="btn btn-gold" href="whatsapp://send" target="_blank" rel="noopener" onclick="EC._wa(event)">📱 افتح واتساب الآن</a>
       <div class="df g8">
         <button class="btn btn-outline btn-sm" onclick="EC.exportJSON();closeModal()">↻ تنزيل مجدداً</button>
         <button class="btn btn-primary btn-sm" onclick="closeModal()">تم</button>
@@ -810,7 +810,37 @@ const EC={
     </div>`);
   },
 
-  shareById(id){this.share(id)}
+  shareById(id){this.share(id)},
+
+  // Open WhatsApp reliably across Android/iOS/browsers
+  _wa(e){
+    if(e) e.preventDefault();
+    // Create a hidden anchor and programmatically click it —
+    // this bypasses the browser's pop-up blocker that often
+    // swallows custom-scheme navigation from existing <a> elements
+    const schemes = [
+      'whatsapp://send',   // standard scheme
+      'whatsapp://',       // fallback scheme
+    ];
+    let launched = false;
+    for(const s of schemes){
+      try{
+        const a = document.createElement('a');
+        a.href = s;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        launched = true;
+        break;
+      }catch(_){}
+    }
+    // If all schemes failed (desktop / WhatsApp not installed)
+    // open WhatsApp Web as last resort
+    if(!launched){
+      window.open('https://web.whatsapp.com/','_blank','noopener');
+    }
+  }
 };
 
 /* ═══════════════════════════════════════════
