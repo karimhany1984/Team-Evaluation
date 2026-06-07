@@ -1198,6 +1198,7 @@ const AC={
           <td><span class="b ${u.active?'b-ok':'b-err'}">${u.active?'نشط':'معطّل'}</span></td>
           <td class="tm tsm">${H.fd(u.createdAt)}</td>
           <td><div class="df g8">
+            <button class="btn btn-icon btn-sm" onclick="AC.genLink('${u.id}')" title="رابط الإعداد للمشاركة عبر واتساب">🔗</button>
             <button class="btn btn-icon btn-sm" onclick="AC.editUser('${u.id}')" title="تعديل">✏️</button>
             <button class="btn btn-icon btn-sm" onclick="AC.resetPw('${u.id}')" title="تغيير كلمة المرور">🔑</button>
             <button class="btn btn-icon btn-sm" onclick="AC.toggle('${u.id}')" title="${u.active?'تعطيل':'تفعيل'}">${u.active?'⏸️':'▶️'}</button>
@@ -1247,8 +1248,21 @@ const AC={
     const users=S.u();
     if(users.find(u=>u.username===un)){Toast.show('اسم المستخدم مستخدم بالفعل','err');return}
     const h=await Cry.hash(pw);
-    users.push({id:H.uid(),name:nm,username:un,password:h,role:rl,active:true,createdAt:new Date().toISOString()});
-    S.su(users);closeModal();Toast.show('تم إضافة المستخدم بنجاح ✓','ok');this.renderUsers();
+    const newId=H.uid();
+    users.push({id:newId,name:nm,username:un,password:h,role:rl,active:true,createdAt:new Date().toISOString()});
+    S.su(users);
+    closeModal();
+    Toast.show(`تم إنشاء حساب ${nm} ✓ — اضغط 🔗 لإرسال رابط الإعداد`,'ok');
+    this.renderUsers();
+    // Auto-offer setup link for non-admin roles
+    if(rl!=='admin'){
+      setTimeout(()=>{
+        // Pre-fill the display password for convenience
+        this.genLink(newId);
+        // Pre-set the password field
+        setTimeout(()=>{const e=document.getElementById('_gpw');if(e)e.value=pw;},80);
+      },400);
+    }
   },
 
   editUser(id){
@@ -1307,6 +1321,71 @@ const AC={
     const users=S.u();const idx=users.findIndex(u=>u.id===id);
     if(idx>=0)users[idx].password=await Cry.hash(pw);
     S.su(users);closeModal();Toast.show('تم تغيير كلمة المرور بنجاح ✓','ok');
+  },
+
+  // ── SETUP LINK GENERATOR ──
+  genLink(id){
+    const u=S.u().find(u=>u.id===id);if(!u)return;
+    openModal(`
+    <div class="mhdr"><h3>🔗 رابط إعداد الحساب</h3><button class="mcls" onclick="closeModal()">×</button></div>
+    <div class="mbody">
+      <div style="background:rgba(37,99,176,.06);border-radius:var(--rs);padding:12px 14px;margin-bottom:14px">
+        <p class="fw7 mb4">الموظف: <span style="color:var(--blue2)">${u.name}</span></p>
+        <p class="tm tsm">الرابط يُعدّ حسابه تلقائياً عند فتحه لأول مرة ويعرض له بيانات الدخول</p>
+      </div>
+      <div class="fg">
+        <label class="fl">كلمة المرور الأولية <span class="tm">(للعرض للموظف في صفحة الإعداد)</span></label>
+        <div class="pw-wrap">
+          <input class="fc" id="_gpw" type="text" placeholder="أدخل كلمة المرور التي حددتها لهذا الموظف">
+        </div>
+        <div class="fhint">⚠️ يجب أن تطابق كلمة المرور التي أنشأت بها الحساب</div>
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-outline btn-sm" onclick="closeModal()">إلغاء</button>
+      <button class="btn btn-gold" onclick="AC.doGenLink('${id}')">🔗 إنشاء الرابط</button>
+    </div>`);
+  },
+
+  doGenLink(id){
+    const u=S.u().find(u=>u.id===id);if(!u)return;
+    const dispPw=document.getElementById('_gpw')?.value?.trim()||'';
+    // Build setup payload — password is already SHA-256 hashed in storage
+    const payload={id:u.id,n:u.name,u:u.username,p:u.password,r:u.role,pw:dispPw};
+    const encoded=App._enc(payload);
+    const base=location.origin+location.pathname;
+    const url=`${base}#setup/${encoded}`;
+    const roleLabel=ROLES[u.role]||u.role;
+    const msg=`🔔 إعداد حساب نظام تقييم الأداء\n\nمرحباً ${u.name} 👋\n\nتم إنشاء حسابك بصفة: ${roleLabel}\n\n📱 افتح الرابط التالي لإعداد حسابك:\n${url}\n\nسيعرض لك الرابط اسم المستخدم وكلمة المرور الأولية.`;
+    this._share={msg,url,name:u.name};
+    closeModal();
+    openModal(`
+    <div class="mhdr"><h3>✅ الرابط جاهز</h3><button class="mcls" onclick="closeModal()">×</button></div>
+    <div class="mbody">
+      <p class="mb12 fw7">أرسل هذه الرسالة لـ <span style="color:var(--blue2)">${u.name}</span> عبر واتساب:</p>
+      <textarea class="fc mb12" id="_smsg" readonly rows="9" style="font-size:12.5px;line-height:1.7">${msg}</textarea>
+      <div class="df fw g8">
+        <button class="btn btn-outline btn-sm" onclick="navigator.clipboard?.writeText(document.getElementById('_smsg').value).then(()=>Toast.show('تم النسخ ✓','ok'))">📋 نسخ الرسالة</button>
+        <button class="btn btn-gold" onclick="AC.doShare()">📱 مشاركة مباشرة</button>
+      </div>
+      <div style="background:rgba(201,151,62,.08);border-radius:var(--rs);padding:10px 14px;margin-top:12px">
+        <p class="tsm fw7 mb4">💡 ماذا يحدث عندما يفتح الموظف الرابط؟</p>
+        <p class="tsm tm">يُعدَّ حسابه تلقائياً على جهازه ← تظهر له بيانات الدخول ← يضغط "تسجيل الدخول" ← يبدأ العمل مباشرة</p>
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-primary btn-sm" onclick="closeModal()">تم</button>
+    </div>`);
+  },
+
+  async doShare(){
+    const{msg}=this._share||{};if(!msg)return;
+    if(navigator.share){
+      try{await navigator.share({title:'إعداد حساب نظام تقييم الأداء',text:msg});return;}
+      catch(e){if(e.name==='AbortError')return;}
+    }
+    // Fallback: WhatsApp web deep link
+    window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
   },
 
   toggle(id){
@@ -1377,17 +1456,83 @@ function setupLogin(){
 }
 
 /* ═══════════════════════════════════════════
+   SETUP DONE VIEW (after opening setup link)
+═══════════════════════════════════════════ */
+function setupDoneView(d){
+  return`
+  <div class="lpg">
+    <div class="lbox">
+      <div class="ltop" style="background:linear-gradient(135deg,#196040,#1e7e4f)">
+        <div class="llogo" style="background:#b8f5d8;color:#196040;font-size:28px">✅</div>
+        <h2>تم إعداد حسابك!</h2>
+        <p>مرحباً، ${d.n}</p>
+      </div>
+      <div class="lbody">
+        <div style="background:#f0faf5;border:1.5px solid #a8edca;border-radius:var(--rs);padding:18px;margin-bottom:16px">
+          <p class="fw7 mb12" style="color:var(--ok);font-size:15px;text-align:center">بيانات تسجيل الدخول</p>
+          <div class="df jcb aic mb8">
+            <span class="tm">اسم المستخدم</span>
+            <strong style="font-size:16px;direction:ltr;letter-spacing:.5px">${d.u}</strong>
+          </div>
+          ${d.pw?`<div class="df jcb aic">
+            <span class="tm">كلمة المرور الأولية</span>
+            <strong style="font-size:16px;direction:ltr;letter-spacing:.5px">${d.pw}</strong>
+          </div>`:`<p class="tm tsm tc">كلمة المرور أُرسِلت إليك بشكل منفصل</p>`}
+        </div>
+        <p class="tm tsm tc mb16">⚠️ احتفظ بهذه البيانات في مكان آمن</p>
+        <button class="btn btn-primary btn-lg" style="width:100%;justify-content:center" onclick="App.go('login')">
+          تسجيل الدخول الآن →
+        </button>
+        ${d.role==='employee'?'<p class="tm tsm tc mt8">بعد الدخول، اذهب إلى "تقرير جديد" وابدأ بملء تقريرك</p>':''}
+      </div>
+    </div>
+  </div>`
+}
+
+/* ═══════════════════════════════════════════
    APP ROUTER
 ═══════════════════════════════════════════ */
 const App={
+  // URL-safe Base64 helpers for Arabic text
+  _enc(obj){
+    return btoa(unescape(encodeURIComponent(JSON.stringify(obj))))
+      .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+  },
+  _dec(s){
+    try{return JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/')))));}
+    catch{return null;}
+  },
+
+  handleSetup(encoded){
+    const d=this._dec(encoded);
+    if(!d||!d.u||!d.p||!d.n||!d.r)return null;
+    const users=S.u();
+    const idx=users.findIndex(u=>u.username===d.u);
+    const entry={id:d.id||H.uid(),name:d.n,username:d.u,password:d.p,role:d.r,active:true,createdAt:new Date().toISOString()};
+    if(idx>=0){users[idx]={...users[idx],...entry};}
+    else{users.push(entry);}
+    S.su(users);
+    return d;
+  },
+
   async init(){
     await S.seed();
+    // Intercept setup links: index.html#setup/BASE64
+    const hash=location.hash;
+    if(hash.startsWith('#setup/')){
+      history.replaceState(null,'',location.pathname+location.search);
+      const result=this.handleSetup(hash.slice(7));
+      if(result){document.getElementById('app').innerHTML=setupDoneView(result);return;}
+      // Invalid link — just fall through to login
+      Toast.show('رابط الإعداد غير صحيح أو منتهي الصلاحية','err');
+    }
     const s=Auth.sess();
     if(!s){this.go('login');return}
     if(s.role==='admin')this.go('admin');
     else if(s.role==='manager')this.go('manager');
     else this.go('employee');
   },
+
   go(view){
     const app=document.getElementById('app');
     if(view==='login'){
