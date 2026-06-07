@@ -262,13 +262,13 @@ function openModal(html,cls=''){
   document.body.appendChild(ov);
 }
 function closeModal(){const e=document.getElementById('_ov');if(e)e.remove()}
-function confirmDlg(msg,cb){
+function confirmDlg(msg,cb,btnLabel='تأكيد الحذف',btnCls='btn-danger'){
   openModal(`
     <div class="mhdr"><h3>⚠️ تأكيد</h3><button class="mcls" onclick="closeModal()">×</button></div>
     <div class="mbody"><p style="font-size:15px">${msg}</p></div>
     <div class="mfoot">
       <button class="btn btn-outline btn-sm" onclick="closeModal()">إلغاء</button>
-      <button class="btn btn-danger btn-sm" id="_cyes">تأكيد الحذف</button>
+      <button class="btn ${btnCls} btn-sm" id="_cyes">${btnLabel}</button>
     </div>`);
   document.getElementById('_cyes').onclick=()=>{closeModal();cb()};
 }
@@ -421,7 +421,7 @@ const Who={
     App.go(this._role);
   },
   change(){
-    confirmDlg('هل تريد تغيير الاسم أو الدور؟',()=>{S.clearWho();App.go('who');});
+    confirmDlg('هل تريد تغيير الاسم أو الدور؟',()=>{S.clearWho();App.go('who');},'تغيير','btn-primary');
   }
 };
 
@@ -711,7 +711,7 @@ const EC={
       const s=S.who();
       const cnt=S.r().filter(r=>r.employeeId===s.id).length;
       const tmy=document.getElementById('tMy');if(tmy)tmy.textContent=`📋 تقاريري (${cnt})`;
-    });
+    },'📤 إرسال التقرير','btn-gold');
   },
 
   // ── EXPORT / SHARE ──
