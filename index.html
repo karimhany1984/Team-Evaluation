@@ -177,6 +177,23 @@ tbody td{padding:9px 13px;vertical-align:middle}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
 .dvd{border:none;border-top:1px solid var(--border);margin:14px 0}
+/* ─── MOBILE FORM CARDS ─── */
+.mth-grid{display:flex;flex-direction:column;gap:10px}
+.mth-card{border:1.5px solid var(--border);border-radius:var(--rs);overflow:hidden}
+.mth-hdr{background:rgba(13,33,55,.08);padding:9px 14px;font-weight:700;font-size:13.5px;color:var(--navy);border-bottom:1px solid var(--border)}
+.mth-body{padding:12px;display:grid;gap:10px}
+.mth-body.d3{grid-template-columns:1fr 1fr 1fr}
+.mth-body.d2{grid-template-columns:1fr 1fr}
+.mf label{display:block;font-size:11.5px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.act-grid{display:flex;flex-direction:column;gap:10px}
+.act-card{border:1.5px solid var(--border);border-radius:var(--rs);overflow:hidden}
+.act-hdr{background:rgba(13,33,55,.08);padding:8px 13px;display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--border)}
+.act-num{width:24px;height:24px;background:var(--navy);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0}
+.act-ttl{font-size:13.5px;font-weight:700;color:var(--navy)}
+.act-body{padding:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+@media(max-width:640px){
+  .mth-body.d3,.mth-body.d2,.act-body{grid-template-columns:1fr}
+}
 ::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:var(--muted)}
 @media(max-width:768px){.sidebar{display:none}.g2,.g3{grid-template-columns:1fr}.cg{grid-template-columns:1fr}}
 @media print{.hdr,.sidebar,.btn,.tabs,.fb,.no-print{display:none!important}body{background:#fff}.content{padding:0}}
@@ -548,24 +565,25 @@ const EC={
     <div class="sw">
       <div class="sh">أولاً: معيار الانضباط الإداري</div>
       <div class="sb">
-        <div class="tw rpt-tbl">
-          <table>
-            <thead><tr>
-              <th style="width:90px">الشهر</th>
-              <th>الإجازات الحاصل عليها<br><small style="font-weight:400;opacity:.8">(عارضة / اعتيادي)</small></th>
-              <th>الأذونات</th>
-              <th>التأخيرات</th>
-            </tr></thead>
-            <tbody>
-              ${['m1','m2','m3'].map((mk,i)=>`
-              <tr>
-                <td><strong>${months[i]}</strong></td>
-                <td><input class="fc" id="d${mk}l" value="${rpt.d[mk].l}" ${ro} placeholder="عدد الأيام"></td>
-                <td><input class="fc" id="d${mk}p" value="${rpt.d[mk].p}" ${ro} placeholder="عدد المرات"></td>
-                <td><input class="fc" id="d${mk}t" value="${rpt.d[mk].t}" ${ro} placeholder="عدد المرات"></td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
+        <div class="mth-grid">
+          ${['m1','m2','m3'].map((mk,i)=>`
+          <div class="mth-card">
+            <div class="mth-hdr">📅 ${months[i]}</div>
+            <div class="mth-body d3">
+              <div class="mf">
+                <label>الإجازات (عارضة / اعتيادي)</label>
+                <input class="fc" id="d${mk}l" value="${rpt.d[mk].l}" ${ro} placeholder="عدد الأيام">
+              </div>
+              <div class="mf">
+                <label>الأذونات</label>
+                <input class="fc" id="d${mk}p" value="${rpt.d[mk].p}" ${ro} placeholder="عدد المرات">
+              </div>
+              <div class="mf">
+                <label>التأخيرات</label>
+                <input class="fc" id="d${mk}t" value="${rpt.d[mk].t}" ${ro} placeholder="عدد المرات">
+              </div>
+            </div>
+          </div>`).join('')}
         </div>
         ${locked&&rpt.d.rating?`<div class="rr mt8"><label>تقييم المشرف:</label>${H.starsRO(rpt.d.rating)}<span class="rl">${RL[rpt.d.rating]||''}</span></div>`:''}
       </div>
@@ -575,22 +593,21 @@ const EC={
     <div class="sw">
       <div class="sh">ثانياً: المأموريات</div>
       <div class="sb">
-        <div class="tw rpt-tbl">
-          <table>
-            <thead><tr>
-              <th style="width:90px">الشهر</th>
-              <th>عدد مأموريات التقييم (سكور) + اسم المنشآت</th>
-              <th>عدد المأموريات الخاصة + اسم المنشآت</th>
-            </tr></thead>
-            <tbody>
-              ${['m1','m2','m3'].map((mk,i)=>`
-              <tr>
-                <td><strong>${months[i]}</strong></td>
-                <td><textarea class="fc" id="m${mk}ev" ${dis} placeholder="مثال: 3 مأموريات — مستشفى X, مستشفى Y">${rpt.m[mk].ev}</textarea></td>
-                <td><textarea class="fc" id="m${mk}sp" ${dis} placeholder="مثال: مأمورية خاصة — جهة Z">${rpt.m[mk].sp}</textarea></td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
+        <div class="mth-grid">
+          ${['m1','m2','m3'].map((mk,i)=>`
+          <div class="mth-card">
+            <div class="mth-hdr">📅 ${months[i]}</div>
+            <div class="mth-body d2">
+              <div class="mf">
+                <label>مأموريات التقييم (سكور) + أسماء المنشآت</label>
+                <textarea class="fc" id="m${mk}ev" ${dis} placeholder="مثال: 3 مأموريات — مستشفى X, مستشفى Y">${rpt.m[mk].ev}</textarea>
+              </div>
+              <div class="mf">
+                <label>المأموريات الخاصة + أسماء المنشآت</label>
+                <textarea class="fc" id="m${mk}sp" ${dis} placeholder="مثال: مأمورية خاصة — جهة Z">${rpt.m[mk].sp}</textarea>
+              </div>
+            </div>
+          </div>`).join('')}
         </div>
         ${locked&&rpt.m.rating?`<div class="rr mt8"><label>تقييم المشرف:</label>${H.starsRO(rpt.m.rating)}<span class="rl">${RL[rpt.m.rating]||''}</span></div>`:''}
       </div>
@@ -600,26 +617,31 @@ const EC={
     <div class="sw">
       <div class="sh">ثالثاً: الإنجازات</div>
       <div class="sb">
-        <div class="tw rpt-tbl">
-          <table>
-            <thead><tr>
-              <th style="width:34px">م</th>
-              <th style="min-width:150px">عنوان النشاط</th>
-              <th style="width:110px">مدة التنفيذ</th>
-              <th>خطوات التنفيذ</th>
-              <th>النتائج</th>
-            </tr></thead>
-            <tbody>
-              ${rpt.a.map((a,i)=>`
-              <tr>
-                <td class="tc tm">${i+1}</td>
-                <td>${a.title?`<input class="fc" value="${a.title}" readonly>`:`<input class="fc" id="at${i}" value="${a.title}" ${ro} placeholder="نشاط آخر">`}</td>
-                <td><input class="fc" id="ad${i}" value="${a.dur}" ${ro} placeholder="المدة"></td>
-                <td><textarea class="fc" id="as${i}" ${dis} placeholder="خطوات التنفيذ">${a.steps}</textarea></td>
-                <td><textarea class="fc" id="ar${i}" ${dis} placeholder="النتائج">${a.res}</textarea></td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
+        <div class="act-grid">
+          ${rpt.a.map((a,i)=>`
+          <div class="act-card">
+            <div class="act-hdr">
+              <span class="act-num">${i+1}</span>
+              ${a.title
+                ?`<span class="act-ttl">${a.title}</span>`
+                :`<input class="fc mb0" id="at${i}" value="${a.title}" ${ro} placeholder="عنوان النشاط" style="flex:1;margin:0">`
+              }
+            </div>
+            <div class="act-body">
+              <div class="mf">
+                <label>مدة التنفيذ</label>
+                <input class="fc" id="ad${i}" value="${a.dur}" ${ro} placeholder="المدة">
+              </div>
+              <div class="mf">
+                <label>خطوات التنفيذ</label>
+                <textarea class="fc" id="as${i}" ${dis} placeholder="خطوات التنفيذ">${a.steps}</textarea>
+              </div>
+              <div class="mf">
+                <label>النتائج</label>
+                <textarea class="fc" id="ar${i}" ${dis} placeholder="النتائج">${a.res}</textarea>
+              </div>
+            </div>
+          </div>`).join('')}
         </div>
         ${locked&&rpt.aRating?`<div class="rr mt8"><label>تقييم المشرف:</label>${H.starsRO(rpt.aRating)}<span class="rl">${RL[rpt.aRating]||''}</span></div>`:''}
         ${rpt.status==='rated'&&rpt.mgrNotes?`<div class="rr mt8" style="flex-direction:column;align-items:flex-start"><label class="fw7 mb4">📝 ملاحظات المشرف:</label><p style="font-size:13.5px;line-height:1.7">${rpt.mgrNotes}</p></div>`:''}
@@ -635,9 +657,9 @@ const EC={
     `<div class="card mb20 no-print" style="border:2px dashed var(--gold);background:rgba(201,151,62,.04)">
       <div class="cb">
         <p class="fw7 mb8" style="color:var(--navy);font-size:14px">📱 أرسل تقريرك للمشرف عبر واتساب</p>
-        <p class="tm tsm mb12">صدّر ملف JSON ثم شاركه مباشرةً عبر واتساب أو أي تطبيق مراسلة</p>
+        <p class="tm tsm mb12">اضغط "إرسال عبر واتساب" — سيتم تنزيل الملف وستظهر لك تعليمات الإرسال خطوة بخطوة</p>
         <div class="df fw g8">
-          <button class="btn btn-gold" onclick="EC.share()">📱 مشاركة مباشرة</button>
+          <button class="btn btn-gold" onclick="EC.share()">📱 إرسال عبر واتساب</button>
           <button class="btn btn-outline btn-sm" onclick="EC.exportJSON()">⬇️ تنزيل JSON</button>
           <button class="btn btn-outline btn-sm" onclick="EC.exportMD()">📄 تنزيل نص مقروء</button>
           <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ طباعة</button>
@@ -744,21 +766,48 @@ const EC={
     const rpt=this._rptById(id);if(!rpt)return;
     const json=this._pkg(rpt);
     const fname=this._fname(rpt,'json');
-    const file=new File([json],fname,{type:'application/json'});
-    // Try native share sheet first (mobile → WhatsApp, etc.)
-    if(navigator.canShare&&navigator.canShare({files:[file]})){
-      try{
-        await navigator.share({
-          title:`تقرير أداء — ${rpt.employeeName}`,
-          text:`تقرير ${QRS[rpt.quarter]?.n||rpt.quarter} ${rpt.year}\nالموظف: ${rpt.employeeName}\n\nيرجى استيراد الملف المرفق في لوحة المشرف.`,
-          files:[file]
-        });
-        return;
-      }catch(e){if(e.name==='AbortError')return;/* fallthrough to download */}
-    }
-    // Fallback: download + guidance
+    // Step 1 — always download the file first (reliable on all devices)
     this._dl(new Blob([json],{type:'application/json'}),fname);
-    Toast.show('تم تنزيل الملف — افتح واتساب وأرسله للمشرف يدوياً','ok');
+    // Step 2 — show clear WhatsApp instructions modal
+    this._showShareInstructions(fname);
+  },
+
+  _showShareInstructions(fname){
+    const steps=[
+      'افتح تطبيق واتساب',
+      'اختر محادثة المشرف',
+      'اضغط على أيقونة المرفق 📎',
+      'اختر <strong>ملف</strong> أو <strong>مستند</strong>',
+      `ابحث في مجلد <strong>التنزيلات</strong> عن:<br><code style="font-size:11px;background:#eef;padding:2px 6px;border-radius:4px;direction:ltr;display:inline-block;margin-top:3px">${fname}</code>`,
+      'اضغط إرسال ✅'
+    ];
+    openModal(`
+    <div class="mhdr">
+      <h3>📱 إرسال التقرير عبر واتساب</h3>
+      <button class="mcls" onclick="closeModal()">×</button>
+    </div>
+    <div class="mbody">
+      <div style="background:rgba(30,126,79,.08);border:1.5px solid rgba(30,126,79,.3);border-radius:var(--rs);padding:14px 16px;text-align:center;margin-bottom:18px">
+        <div style="font-size:32px;margin-bottom:4px">✅</div>
+        <p class="fw7" style="color:var(--ok);font-size:15px">تم تنزيل الملف بنجاح!</p>
+        <p class="tm tsm mt4">ابحث عنه في مجلد التنزيلات</p>
+      </div>
+      <p class="fw7 mb10" style="font-size:14px">الآن أرسله للمشرف خطوة بخطوة:</p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${steps.map((s,i)=>`
+        <div style="display:flex;align-items:flex-start;gap:10px;background:var(--bg);padding:10px 12px;border-radius:var(--rs)">
+          <span style="background:var(--navy);color:#fff;border-radius:50%;width:26px;height:26px;min-width:26px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800">${i+1}</span>
+          <span style="font-size:13.5px;line-height:1.5">${s}</span>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div class="mfoot" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <a class="btn btn-gold" href="whatsapp://" style="text-decoration:none">📱 افتح واتساب الآن</a>
+      <div class="df g8">
+        <button class="btn btn-outline btn-sm" onclick="EC.exportJSON();closeModal()">↻ تنزيل مجدداً</button>
+        <button class="btn btn-primary btn-sm" onclick="closeModal()">تم</button>
+      </div>
+    </div>`);
   },
 
   shareById(id){this.share(id)}
