@@ -177,6 +177,10 @@ tbody td{padding:9px 13px;vertical-align:middle}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
 .dvd{border:none;border-top:1px solid var(--border);margin:14px 0}
+/* ─── ROLE SELECT BUTTONS ─── */
+.role-btn{border:2px solid var(--border);border-radius:var(--r);padding:16px 10px;background:#fff;cursor:pointer;text-align:center;font-family:'Tajawal',sans-serif;font-size:14px;font-weight:600;color:var(--text);transition:all .2s;width:100%}
+.role-btn:hover{border-color:var(--blue2);background:rgba(37,99,176,.04)}
+.role-btn.selected{border-color:var(--blue2);background:rgba(37,99,176,.08);color:var(--navy)}
 /* ─── MOBILE FORM CARDS ─── */
 .mth-grid{display:flex;flex-direction:column;gap:10px}
 .mth-card{border:1.5px solid var(--border);border-radius:var(--rs);overflow:hidden}
@@ -224,54 +228,15 @@ const CY=new Date().getFullYear();
 const YEARS=[CY-1,CY,CY+1];
 
 /* ═══════════════════════════════════════════
-   CRYPTO
-═══════════════════════════════════════════ */
-const Cry={
-  async hash(pw){
-    const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pw));
-    return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
-  }
-};
-
-/* ═══════════════════════════════════════════
-   STORE (localStorage)
+   STORE (localStorage — no accounts needed)
 ═══════════════════════════════════════════ */
 const S={
-  K:{U:'pms_u',R:'pms_r',SE:'pms_s'},
-  u(){try{return JSON.parse(localStorage.getItem(this.K.U)||'[]')}catch{return[]}},
-  su(d){localStorage.setItem(this.K.U,JSON.stringify(d))},
+  K:{R:'pms_r',W:'pms_who'},
   r(){try{return JSON.parse(localStorage.getItem(this.K.R)||'[]')}catch{return[]}},
   sr(d){localStorage.setItem(this.K.R,JSON.stringify(d))},
-  sess(){try{return JSON.parse(sessionStorage.getItem(this.K.SE)||'null')}catch{return null}},
-  ssess(d){sessionStorage.setItem(this.K.SE,JSON.stringify(d))},
-  dsess(){sessionStorage.removeItem(this.K.SE)},
-  async seed(){
-    if(this.u().length===0){
-      const h=await Cry.hash('admin@2026');
-      this.su([{id:'u_0',username:'admin',password:h,role:'admin',name:'مسؤول النظام (IT)',active:true,createdAt:new Date().toISOString()}]);
-    }
-  }
-};
-
-/* ═══════════════════════════════════════════
-   AUTH
-═══════════════════════════════════════════ */
-const Auth={
-  async login(un,pw){
-    const h=await Cry.hash(pw);
-    const u=S.u().find(u=>u.username===un&&u.password===h&&u.active);
-    if(!u)return{ok:false,msg:'اسم المستخدم أو كلمة المرور غير صحيحة'};
-    S.ssess({id:u.id,name:u.name,role:u.role,username:u.username});
-    return{ok:true};
-  },
-  logout(){S.dsess();App.go('login')},
-  sess(){return S.sess()},
-  need(role){
-    const s=S.sess();
-    if(!s){App.go('login');return null}
-    if(role&&s.role!==role){App.go('login');return null}
-    return s;
-  }
+  who(){try{return JSON.parse(localStorage.getItem(this.K.W)||'null')}catch{return null}},
+  swho(d){localStorage.setItem(this.K.W,JSON.stringify(d))},
+  clearWho(){localStorage.removeItem(this.K.W)}
 };
 
 /* ═══════════════════════════════════════════
@@ -353,43 +318,58 @@ const H={
 /* ═══════════════════════════════════════════
    VIEW SHELLS
 ═══════════════════════════════════════════ */
-function loginView(){return`
+/* ═══════════════════════════════════════════
+   VIEW SHELLS
+═══════════════════════════════════════════ */
+
+// "Who are you?" — shown only on first launch
+function whoView(){return`
 <div class="lpg">
-  <div class="lbox">
+  <div class="lbox" style="max-width:440px">
     <div class="ltop">
       <div class="llogo">📊</div>
       <h2>نظام تقييم الأداء</h2>
-      <p>تقييم الأداء الربع سنوي للموظفين</p>
+      <p>التقييم الربع سنوي للموظفين</p>
     </div>
     <div class="lbody">
-      <div class="lerr" id="lerr"></div>
-      <div class="fg"><label class="fl">اسم المستخدم</label>
-        <input class="fc" id="lun" type="text" placeholder="أدخل اسم المستخدم" autofocus autocomplete="username">
+      <div class="fg">
+        <label class="fl" style="font-size:14px">اسمك الكامل</label>
+        <input class="fc" id="wName" placeholder="أدخل اسمك الكامل" autofocus>
       </div>
-      <div class="fg"><label class="fl">كلمة المرور</label>
-        <div class="pw-wrap">
-          <input class="fc" id="lpw" type="password" placeholder="أدخل كلمة المرور" autocomplete="current-password">
-          <button class="pw-eye" id="peye" type="button">👁</button>
+      <div class="fg mb0">
+        <label class="fl" style="font-size:14px">دورك في المنظومة</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px" id="roleGrid">
+          <button class="role-btn" id="rEmp" onclick="Who.pick('employee')">
+            <div style="font-size:28px;margin-bottom:6px">👤</div>
+            <strong>موظف</strong>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:4px">أملأ وأرسل تقاريري</div>
+          </button>
+          <button class="role-btn" id="rMgr" onclick="Who.pick('manager')">
+            <div style="font-size:28px;margin-bottom:6px">👔</div>
+            <strong>مشرف</strong>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:4px">أستقبل وأقيّم التقارير</div>
+          </button>
         </div>
       </div>
-      <button class="btn btn-primary btn-lg" style="width:100%;margin-top:6px;justify-content:center" id="lbtn">
-        <span id="lbtxt">تسجيل الدخول</span>
+      <p class="lerr" id="wErr" style="display:none;background:rgba(192,57,43,.07);border:1px solid rgba(192,57,43,.2);border-radius:var(--rs);color:var(--err);padding:9px 13px;font-size:13px;margin-top:14px"></p>
+      <button class="btn btn-primary btn-lg" style="width:100%;justify-content:center;margin-top:16px" onclick="Who.submit()">
+        ابدأ →
       </button>
     </div>
   </div>
 </div>`}
 
 function empShell(){
-  const s=Auth.sess();
-  const cnt=S.r().filter(r=>r.employeeId===s.id).length;
+  const w=S.who();
+  const cnt=S.r().filter(r=>r.employeeId===w.id).length;
   return`
 <div class="hdr">
   <div class="hdr-brand"><div class="hdr-logo">📊</div>
     <div class="hdr-title">نظام تقييم الأداء<small>لوحة الموظف</small></div>
   </div>
   <div class="df aic g8">
-    <div class="hdr-user">👤 <span>${s.name}</span></div>
-    <button class="btn btn-ghost btn-sm" onclick="Auth.logout()">خروج</button>
+    <div class="hdr-user">👤 <span>${w.name}</span></div>
+    <button class="btn btn-ghost btn-sm" onclick="Who.change()">✏️ تغيير</button>
   </div>
 </div>
 <div class="content" style="max-width:960px;margin:0 auto">
@@ -401,15 +381,15 @@ function empShell(){
 </div>`}
 
 function mgrShell(){
-  const s=Auth.sess();
+  const w=S.who();
   return`
 <div class="hdr">
   <div class="hdr-brand"><div class="hdr-logo">📊</div>
     <div class="hdr-title">نظام تقييم الأداء<small>لوحة رئيس القسم</small></div>
   </div>
   <div class="df aic g8">
-    <div class="hdr-user">👔 <span>${s.name}</span></div>
-    <button class="btn btn-ghost btn-sm" onclick="Auth.logout()">خروج</button>
+    <div class="hdr-user">👔 <span>${w.name}</span></div>
+    <button class="btn btn-ghost btn-sm" onclick="Who.change()">✏️ تغيير</button>
   </div>
 </div>
 <div class="layout">
@@ -422,26 +402,28 @@ function mgrShell(){
   <div class="content" id="mc"></div>
 </div>`}
 
-function adminShell(){
-  const s=Auth.sess();
-  return`
-<div class="hdr">
-  <div class="hdr-brand"><div class="hdr-logo">📊</div>
-    <div class="hdr-title">نظام تقييم الأداء<small>إدارة النظام (IT)</small></div>
-  </div>
-  <div class="df aic g8">
-    <div class="hdr-user">⚙️ <span>${s.name}</span></div>
-    <button class="btn btn-ghost btn-sm" onclick="Auth.logout()">خروج</button>
-  </div>
-</div>
-<div class="layout">
-  <div class="sidebar">
-    <div class="ns">النظام</div>
-    <div class="ni active" id="n-users" onclick="AC.nav('users')"><span class="ico">👥</span> المستخدمون</div>
-    <div class="ni" id="n-sys" onclick="AC.nav('sys')"><span class="ico">📊</span> إحصائيات</div>
-  </div>
-  <div class="content" id="ac"></div>
-</div>`}
+/* ═══════════════════════════════════════════
+   WHO CONTROLLER (identity, no passwords)
+═══════════════════════════════════════════ */
+const Who={
+  _role:null,
+  pick(role){
+    this._role=role;
+    document.querySelectorAll('.role-btn').forEach(b=>b.classList.remove('selected'));
+    document.getElementById(role==='employee'?'rEmp':'rMgr').classList.add('selected');
+  },
+  submit(){
+    const name=document.getElementById('wName')?.value.trim();
+    const err=document.getElementById('wErr');
+    if(!name){err.style.display='block';err.textContent='يرجى إدخال اسمك الكامل';return;}
+    if(!this._role){err.style.display='block';err.textContent='يرجى اختيار دورك';return;}
+    S.swho({id:'w_'+Date.now(),name,role:this._role});
+    App.go(this._role);
+  },
+  change(){
+    confirmDlg('هل تريد تغيير الاسم أو الدور؟',()=>{S.clearWho();App.go('who');});
+  }
+};
 
 /* ═══════════════════════════════════════════
    MARKDOWN REPORT BUILDER
@@ -524,7 +506,7 @@ const EC={
 
   renderForm(){
     const q=this.cQ,y=this.cY,months=QRS[q].ms;
-    const s=Auth.sess();
+    const s=S.who();
     const ex=S.r().find(r=>r.employeeId===s.id&&r.quarter===q&&r.year===y);
     const rpt=ex||H.emptyRpt(s.id,s.name,q,y);
     const locked=rpt.status==='submitted'||rpt.status==='rated';
@@ -670,7 +652,7 @@ const EC={
   },
 
   renderMy(){
-    const s=Auth.sess();
+    const s=S.who();
     const rpts=S.r().filter(r=>r.employeeId===s.id).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
     document.getElementById('tabBody').innerHTML=`
     <div class="card">
@@ -714,21 +696,22 @@ const EC={
     const rs=S.r().filter(r=>r.id!==rpt.id);rs.push(rpt);S.sr(rs);
     Toast.show('تم حفظ المسودة ✓','ok');this._rpt=rpt;
     // update tab count
-    const s=Auth.sess();
+    const s=S.who();
     const cnt=S.r().filter(r=>r.employeeId===s.id).length;
     const tmy=document.getElementById('tMy');if(tmy)tmy.textContent=`📋 تقاريري (${cnt})`;
   },
 
   submit(){
     const rpt=this.collect();if(!rpt)return;
-    if(!confirm('هل تريد إرسال التقرير؟ لن تتمكن من تعديله بعد الإرسال.'))return;
-    rpt.status='submitted';rpt.submittedAt=new Date().toISOString();
-    const rs=S.r().filter(r=>r.id!==rpt.id);rs.push(rpt);S.sr(rs);
-    Toast.show('تم إرسال التقرير بنجاح 🎉','ok');
-    this.renderForm();
-    const s=Auth.sess();
-    const cnt=S.r().filter(r=>r.employeeId===s.id).length;
-    const tmy=document.getElementById('tMy');if(tmy)tmy.textContent=`📋 تقاريري (${cnt})`;
+    confirmDlg('هل تريد إرسال التقرير؟ لن تتمكن من تعديله بعد الإرسال.',()=>{
+      rpt.status='submitted';rpt.submittedAt=new Date().toISOString();
+      const rs=S.r().filter(r=>r.id!==rpt.id);rs.push(rpt);S.sr(rs);
+      Toast.show('تم إرسال التقرير بنجاح 🎉','ok');
+      this.renderForm();
+      const s=S.who();
+      const cnt=S.r().filter(r=>r.employeeId===s.id).length;
+      const tmy=document.getElementById('tMy');if(tmy)tmy.textContent=`📋 تقاريري (${cnt})`;
+    });
   },
 
   // ── EXPORT / SHARE ──
@@ -868,7 +851,7 @@ const MC={
 
   renderDash(){
     this.dchart();
-    const emps=S.u().filter(u=>u.role==='employee'&&u.active);
+    const emps=[...new Map(S.r().map(r=>[r.employeeId,{id:r.employeeId,name:r.employeeName}])).values()];
     const qr=S.r().filter(r=>r.quarter===this.sQ&&r.year===this.sY);
     const sub=qr.filter(r=>r.status!=='draft');
     const rated=qr.filter(r=>r.status==='rated'&&r.overallScore);
@@ -986,7 +969,7 @@ const MC={
 
   renderRpts(){
     this.dchart();
-    const emps=S.u().filter(u=>u.role==='employee');
+    const emps=[...new Map(S.r().map(r=>[r.employeeId,{id:r.employeeId,name:r.employeeName}])).values()];
     document.getElementById('mc').innerHTML=`
     <div class="df jcb aic mb16 fw g8">
       <div class="pt mb0">📋 التقارير</div>
@@ -1059,22 +1042,20 @@ const MC={
 
   renderStaff(){
     this.dchart();
-    const emps=S.u().filter(u=>u.role==='employee');
+    const emps=[...new Map(S.r().map(r=>[r.employeeId,{id:r.employeeId,name:r.employeeName}])).values()];
     const all=S.r();
     document.getElementById('mc').innerHTML=`
     <div class="pt">👥 الموظفون</div>
-    ${!emps.length?`<div class="card"><div class="empty"><div class="ei">👥</div><h4>لا يوجد موظفون</h4><p>أضف موظفين من لوحة مسؤول النظام</p></div></div>`:`
+    ${!emps.length?`<div class="card"><div class="empty"><div class="ei">👥</div><h4>لا توجد تقارير مُستوردة بعد</h4><p>استورد تقارير الموظفين من صفحة التقارير</p></div></div>`:`
     <div class="card"><div class="tw"><table>
-      <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الحالة</th><th>تقارير مُرسَلة</th><th>آخر تقرير</th><th>متوسط التقييم</th></tr></thead>
+      <thead><tr><th>اسم الموظف</th><th>تقارير مُرسَلة</th><th>آخر تقرير</th><th>متوسط التقييم</th></tr></thead>
       <tbody>${emps.map(e=>{
         const er=all.filter(r=>r.employeeId===e.id&&r.status!=='draft');
         const rv=all.filter(r=>r.employeeId===e.id&&r.status==='rated'&&r.overallScore);
         const avg=rv.length?(rv.map(r=>+r.overallScore).reduce((a,b)=>a+b,0)/rv.length).toFixed(1):null;
-        const last=er.sort((a,b)=>new Date(b.submittedAt)-new Date(a.submittedAt))[0];
+        const last=[...er].sort((a,b)=>new Date(b.submittedAt)-new Date(a.submittedAt))[0];
         return`<tr>
           <td><strong>${e.name}</strong></td>
-          <td class="tm">${e.username}</td>
-          <td><span class="b ${e.active?'b-ok':'b-err'}">${e.active?'نشط':'معطّل'}</span></td>
           <td class="tc">${er.length}</td>
           <td class="tm tsm">${last?H.fd(last.submittedAt):'—'}</td>
           <td>${avg?`<strong style="color:${H.scoreClr(+avg)}">${avg}/5</strong>`:'<span class="tm">—</span>'}</td>
@@ -1245,391 +1226,31 @@ const MC={
   }
 };
 
-/* ═══════════════════════════════════════════
-   ADMIN CONTROLLER
-═══════════════════════════════════════════ */
-const AC={
-  cNav:'users',
 
-  nav(n){
-    this.cNav=n;
-    ['users','sys'].forEach(k=>{const e=document.getElementById(`n-${k}`);if(e)e.className='ni'+(k===n?' active':'')});
-    if(n==='users')this.renderUsers();
-    else if(n==='sys')this.renderSys();
-  },
-
-  renderUsers(){
-    const users=S.u();
-    document.getElementById('ac').innerHTML=`
-    <div class="pt df jcb aic">
-      <span>👥 إدارة المستخدمين</span>
-      <button class="btn btn-gold no-print" onclick="AC.addUser()">➕ إضافة مستخدم</button>
-    </div>
-    <div class="card">
-      ${!users.length?`<div class="empty"><div class="ei">👤</div><h4>لا يوجد مستخدمون</h4></div>`:`
-      <div class="tw"><table>
-        <thead><tr><th>#</th><th>الاسم الكامل</th><th>اسم المستخدم</th><th>الدور</th><th>الحالة</th><th>الإنشاء</th><th>إجراءات</th></tr></thead>
-        <tbody>${users.map((u,i)=>`<tr>
-          <td class="tm tsm">${i+1}</td>
-          <td><strong>${u.name}</strong></td>
-          <td class="tm">${u.username}</td>
-          <td>${H.roleBdg(u.role)}</td>
-          <td><span class="b ${u.active?'b-ok':'b-err'}">${u.active?'نشط':'معطّل'}</span></td>
-          <td class="tm tsm">${H.fd(u.createdAt)}</td>
-          <td><div class="df g8">
-            <button class="btn btn-icon btn-sm" onclick="AC.genLink('${u.id}')" title="رابط الإعداد للمشاركة عبر واتساب">🔗</button>
-            <button class="btn btn-icon btn-sm" onclick="AC.editUser('${u.id}')" title="تعديل">✏️</button>
-            <button class="btn btn-icon btn-sm" onclick="AC.resetPw('${u.id}')" title="تغيير كلمة المرور">🔑</button>
-            <button class="btn btn-icon btn-sm" onclick="AC.toggle('${u.id}')" title="${u.active?'تعطيل':'تفعيل'}">${u.active?'⏸️':'▶️'}</button>
-            ${u.role!=='admin'?`<button class="btn btn-danger btn-sm" onclick="AC.delUser('${u.id}')">🗑️</button>`:''}
-          </div></td>
-        </tr>`).join('')}</tbody>
-      </table></div>`}
-    </div>`;
-  },
-
-  addUser(){
-    openModal(`
-    <div class="mhdr"><h3>➕ إضافة مستخدم جديد</h3><button class="mcls" onclick="closeModal()">×</button></div>
-    <div class="mbody">
-      <div class="fg"><label class="fl">الاسم الكامل *</label><input class="fc" id="uNm" placeholder="مثال: أحمد محمد علي"></div>
-      <div class="fg"><label class="fl">اسم المستخدم *</label>
-        <input class="fc" id="uUn" placeholder="بالأحرف الإنجليزية والأرقام فقط">
-        <div class="fhint">يُستخدم عند تسجيل الدخول</div>
-      </div>
-      <div class="fg"><label class="fl">كلمة المرور *</label>
-        <div class="pw-wrap">
-          <input class="fc" id="uPw" type="password" placeholder="6 أحرف على الأقل">
-          <button class="pw-eye" type="button" onclick="const e=document.getElementById('uPw');e.type=e.type==='password'?'text':'password'">👁</button>
-        </div>
-      </div>
-      <div class="fg"><label class="fl">الدور *</label>
-        <select class="fc" id="uRl">
-          <option value="employee">موظف</option>
-          <option value="manager">رئيس القسم</option>
-          <option value="admin">مسؤول النظام (IT)</option>
-        </select>
-      </div>
-    </div>
-    <div class="mfoot">
-      <button class="btn btn-outline btn-sm" onclick="closeModal()">إلغاء</button>
-      <button class="btn btn-gold" onclick="AC.saveNew()">💾 حفظ</button>
-    </div>`);
-  },
-
-  async saveNew(){
-    const nm=document.getElementById('uNm').value.trim();
-    const un=document.getElementById('uUn').value.trim();
-    const pw=document.getElementById('uPw').value;
-    const rl=document.getElementById('uRl').value;
-    if(!nm||!un||!pw){Toast.show('يرجى ملء جميع الحقول المطلوبة','err');return}
-    if(pw.length<6){Toast.show('كلمة المرور قصيرة جداً (6 أحرف على الأقل)','wn');return}
-    const users=S.u();
-    if(users.find(u=>u.username===un)){Toast.show('اسم المستخدم مستخدم بالفعل','err');return}
-    const h=await Cry.hash(pw);
-    const newId=H.uid();
-    users.push({id:newId,name:nm,username:un,password:h,role:rl,active:true,createdAt:new Date().toISOString()});
-    S.su(users);
-    closeModal();
-    Toast.show(`تم إنشاء حساب ${nm} ✓ — اضغط 🔗 لإرسال رابط الإعداد`,'ok');
-    this.renderUsers();
-    // Auto-offer setup link for non-admin roles
-    if(rl!=='admin'){
-      setTimeout(()=>{
-        // Pre-fill the display password for convenience
-        this.genLink(newId);
-        // Pre-set the password field
-        setTimeout(()=>{const e=document.getElementById('_gpw');if(e)e.value=pw;},80);
-      },400);
-    }
-  },
-
-  editUser(id){
-    const u=S.u().find(u=>u.id===id);if(!u)return;
-    openModal(`
-    <div class="mhdr"><h3>✏️ تعديل بيانات المستخدم</h3><button class="mcls" onclick="closeModal()">×</button></div>
-    <div class="mbody">
-      <div class="fg"><label class="fl">الاسم الكامل</label><input class="fc" id="enm" value="${u.name}"></div>
-      <div class="fg"><label class="fl">اسم المستخدم</label><input class="fc" id="eun" value="${u.username}"></div>
-      <div class="fg"><label class="fl">الدور</label>
-        <select class="fc" id="erl">
-          <option value="employee" ${u.role==='employee'?'selected':''}>موظف</option>
-          <option value="manager" ${u.role==='manager'?'selected':''}>رئيس القسم</option>
-          <option value="admin" ${u.role==='admin'?'selected':''}>مسؤول النظام (IT)</option>
-        </select>
-      </div>
-    </div>
-    <div class="mfoot">
-      <button class="btn btn-outline btn-sm" onclick="closeModal()">إلغاء</button>
-      <button class="btn btn-primary" onclick="AC.saveEdit('${id}')">💾 حفظ</button>
-    </div>`);
-  },
-
-  saveEdit(id){
-    const nm=document.getElementById('enm').value.trim();
-    const un=document.getElementById('eun').value.trim();
-    const rl=document.getElementById('erl').value;
-    if(!nm||!un){Toast.show('يرجى ملء جميع الحقول','err');return}
-    const users=S.u();
-    if(users.find(u=>u.username===un&&u.id!==id)){Toast.show('اسم المستخدم مستخدم بالفعل','err');return}
-    const idx=users.findIndex(u=>u.id===id);
-    if(idx>=0){users[idx].name=nm;users[idx].username=un;users[idx].role=rl}
-    S.su(users);closeModal();Toast.show('تم التعديل بنجاح ✓','ok');this.renderUsers();
-  },
-
-  resetPw(id){
-    openModal(`
-    <div class="mhdr"><h3>🔑 إعادة تعيين كلمة المرور</h3><button class="mcls" onclick="closeModal()">×</button></div>
-    <div class="mbody">
-      <div class="fg"><label class="fl">كلمة المرور الجديدة</label>
-        <div class="pw-wrap">
-          <input class="fc" id="npw" type="password" placeholder="6 أحرف على الأقل">
-          <button class="pw-eye" type="button" onclick="const e=document.getElementById('npw');e.type=e.type==='password'?'text':'password'">👁</button>
-        </div>
-      </div>
-    </div>
-    <div class="mfoot">
-      <button class="btn btn-outline btn-sm" onclick="closeModal()">إلغاء</button>
-      <button class="btn btn-danger" onclick="AC.saveReset('${id}')">🔑 تغيير</button>
-    </div>`);
-  },
-
-  async saveReset(id){
-    const pw=document.getElementById('npw')?.value;
-    if(!pw||pw.length<6){Toast.show('كلمة المرور قصيرة جداً','wn');return}
-    const users=S.u();const idx=users.findIndex(u=>u.id===id);
-    if(idx>=0)users[idx].password=await Cry.hash(pw);
-    S.su(users);closeModal();Toast.show('تم تغيير كلمة المرور بنجاح ✓','ok');
-  },
-
-  // ── SETUP LINK GENERATOR ──
-  genLink(id){
-    const u=S.u().find(u=>u.id===id);if(!u)return;
-    openModal(`
-    <div class="mhdr"><h3>🔗 رابط إعداد الحساب</h3><button class="mcls" onclick="closeModal()">×</button></div>
-    <div class="mbody">
-      <div style="background:rgba(37,99,176,.06);border-radius:var(--rs);padding:12px 14px;margin-bottom:14px">
-        <p class="fw7 mb4">الموظف: <span style="color:var(--blue2)">${u.name}</span></p>
-        <p class="tm tsm">الرابط يُعدّ حسابه تلقائياً عند فتحه لأول مرة ويعرض له بيانات الدخول</p>
-      </div>
-      <div class="fg">
-        <label class="fl">كلمة المرور الأولية <span class="tm">(للعرض للموظف في صفحة الإعداد)</span></label>
-        <div class="pw-wrap">
-          <input class="fc" id="_gpw" type="text" placeholder="أدخل كلمة المرور التي حددتها لهذا الموظف">
-        </div>
-        <div class="fhint">⚠️ يجب أن تطابق كلمة المرور التي أنشأت بها الحساب</div>
-      </div>
-    </div>
-    <div class="mfoot">
-      <button class="btn btn-outline btn-sm" onclick="closeModal()">إلغاء</button>
-      <button class="btn btn-gold" onclick="AC.doGenLink('${id}')">🔗 إنشاء الرابط</button>
-    </div>`);
-  },
-
-  doGenLink(id){
-    const u=S.u().find(u=>u.id===id);if(!u)return;
-    const dispPw=document.getElementById('_gpw')?.value?.trim()||'';
-    // Build setup payload — password is already SHA-256 hashed in storage
-    const payload={id:u.id,n:u.name,u:u.username,p:u.password,r:u.role,pw:dispPw};
-    const encoded=App._enc(payload);
-    const base=location.origin+location.pathname;
-    const url=`${base}#setup/${encoded}`;
-    const roleLabel=ROLES[u.role]||u.role;
-    const msg=`🔔 إعداد حساب نظام تقييم الأداء\n\nمرحباً ${u.name} 👋\n\nتم إنشاء حسابك بصفة: ${roleLabel}\n\n📱 افتح الرابط التالي لإعداد حسابك:\n${url}\n\nسيعرض لك الرابط اسم المستخدم وكلمة المرور الأولية.`;
-    this._share={msg,url,name:u.name};
-    closeModal();
-    openModal(`
-    <div class="mhdr"><h3>✅ الرابط جاهز</h3><button class="mcls" onclick="closeModal()">×</button></div>
-    <div class="mbody">
-      <p class="mb12 fw7">أرسل هذه الرسالة لـ <span style="color:var(--blue2)">${u.name}</span> عبر واتساب:</p>
-      <textarea class="fc mb12" id="_smsg" readonly rows="9" style="font-size:12.5px;line-height:1.7">${msg}</textarea>
-      <div class="df fw g8">
-        <button class="btn btn-outline btn-sm" onclick="navigator.clipboard?.writeText(document.getElementById('_smsg').value).then(()=>Toast.show('تم النسخ ✓','ok'))">📋 نسخ الرسالة</button>
-        <button class="btn btn-gold" onclick="AC.doShare()">📱 مشاركة مباشرة</button>
-      </div>
-      <div style="background:rgba(201,151,62,.08);border-radius:var(--rs);padding:10px 14px;margin-top:12px">
-        <p class="tsm fw7 mb4">💡 ماذا يحدث عندما يفتح الموظف الرابط؟</p>
-        <p class="tsm tm">يُعدَّ حسابه تلقائياً على جهازه ← تظهر له بيانات الدخول ← يضغط "تسجيل الدخول" ← يبدأ العمل مباشرة</p>
-      </div>
-    </div>
-    <div class="mfoot">
-      <button class="btn btn-primary btn-sm" onclick="closeModal()">تم</button>
-    </div>`);
-  },
-
-  async doShare(){
-    const{msg}=this._share||{};if(!msg)return;
-    if(navigator.share){
-      try{await navigator.share({title:'إعداد حساب نظام تقييم الأداء',text:msg});return;}
-      catch(e){if(e.name==='AbortError')return;}
-    }
-    // Fallback: WhatsApp web deep link
-    window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
-  },
-
-  toggle(id){
-    const users=S.u();const idx=users.findIndex(u=>u.id===id);
-    if(idx>=0){users[idx].active=!users[idx].active;S.su(users);
-      Toast.show(`تم ${users[idx].active?'تفعيل':'تعطيل'} الحساب`,'ok');this.renderUsers()}
-  },
-
-  delUser(id){
-    confirmDlg('هل تريد حذف هذا المستخدم؟ سيتم حذف جميع تقاريره أيضاً.',()=>{
-      S.su(S.u().filter(u=>u.id!==id));
-      S.sr(S.r().filter(r=>r.employeeId!==id));
-      Toast.show('تم حذف المستخدم ✓','ok');this.renderUsers();
-    });
-  },
-
-  renderSys(){
-    const users=S.u();const rpts=S.r();
-    document.getElementById('ac').innerHTML=`
-    <div class="pt">📊 إحصائيات النظام</div>
-    <div class="sg">
-      <div class="sc"><div class="si">👥</div><div><div class="sv">${users.length}</div><div class="sl">إجمالي المستخدمين</div></div></div>
-      <div class="sc ok"><div class="si">✅</div><div><div class="sv">${users.filter(u=>u.active).length}</div><div class="sl">حسابات نشطة</div></div></div>
-      <div class="sc g"><div class="si">📋</div><div><div class="sv">${rpts.length}</div><div class="sl">إجمالي التقارير</div></div></div>
-      <div class="sc wn"><div class="si">📤</div><div><div class="sv">${rpts.filter(r=>r.status!=='draft').length}</div><div class="sl">تقارير مُرسَلة</div></div></div>
-    </div>
-    <div class="card">
-      <div class="card-hdr"><h3>تفاصيل المستخدمين</h3></div>
-      <div class="tw"><table>
-        <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور</th><th>الحالة</th><th>التقارير المُرسَلة</th></tr></thead>
-        <tbody>${users.map(u=>`<tr>
-          <td><strong>${u.name}</strong></td><td class="tm">${u.username}</td>
-          <td>${H.roleBdg(u.role)}</td>
-          <td><span class="b ${u.active?'b-ok':'b-err'}">${u.active?'نشط':'معطّل'}</span></td>
-          <td class="tc">${rpts.filter(r=>r.employeeId===u.id&&r.status!=='draft').length||'—'}</td>
-        </tr>`).join('')}</tbody>
-      </table></div>
-    </div>`;
-  }
-};
-
-/* ═══════════════════════════════════════════
-   LOGIN EVENTS
-═══════════════════════════════════════════ */
-function setupLogin(){
-  const btn=document.getElementById('lbtn');
-  const eye=document.getElementById('peye');
-  const pw=document.getElementById('lpw');
-  if(eye)eye.onclick=()=>pw.type=pw.type==='password'?'text':'password';
-  const doLogin=async()=>{
-    const un=document.getElementById('lun')?.value.trim();
-    const p=document.getElementById('lpw')?.value;
-    const err=document.getElementById('lerr');
-    if(!un||!p){err.style.display='block';err.textContent='يرجى إدخال اسم المستخدم وكلمة المرور';return}
-    btn.disabled=true;document.getElementById('lbtxt').textContent='جاري التحقق...';
-    const res=await Auth.login(un,p);
-    if(!res.ok){
-      err.style.display='block';err.textContent=res.msg;
-      btn.disabled=false;document.getElementById('lbtxt').textContent='تسجيل الدخول';return;
-    }
-    const s=Auth.sess();
-    if(s.role==='admin')App.go('admin');
-    else if(s.role==='manager')App.go('manager');
-    else App.go('employee');
-  };
-  if(btn)btn.onclick=doLogin;
-  ['lun','lpw'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('keydown',ev=>{if(ev.key==='Enter')doLogin()})});
-}
-
-/* ═══════════════════════════════════════════
-   SETUP DONE VIEW (after opening setup link)
-═══════════════════════════════════════════ */
-function setupDoneView(d){
-  return`
-  <div class="lpg">
-    <div class="lbox">
-      <div class="ltop" style="background:linear-gradient(135deg,#196040,#1e7e4f)">
-        <div class="llogo" style="background:#b8f5d8;color:#196040;font-size:28px">✅</div>
-        <h2>تم إعداد حسابك!</h2>
-        <p>مرحباً، ${d.n}</p>
-      </div>
-      <div class="lbody">
-        <div style="background:#f0faf5;border:1.5px solid #a8edca;border-radius:var(--rs);padding:18px;margin-bottom:16px">
-          <p class="fw7 mb12" style="color:var(--ok);font-size:15px;text-align:center">بيانات تسجيل الدخول</p>
-          <div class="df jcb aic mb8">
-            <span class="tm">اسم المستخدم</span>
-            <strong style="font-size:16px;direction:ltr;letter-spacing:.5px">${d.u}</strong>
-          </div>
-          ${d.pw?`<div class="df jcb aic">
-            <span class="tm">كلمة المرور الأولية</span>
-            <strong style="font-size:16px;direction:ltr;letter-spacing:.5px">${d.pw}</strong>
-          </div>`:`<p class="tm tsm tc">كلمة المرور أُرسِلت إليك بشكل منفصل</p>`}
-        </div>
-        <p class="tm tsm tc mb16">⚠️ احتفظ بهذه البيانات في مكان آمن</p>
-        <button class="btn btn-primary btn-lg" style="width:100%;justify-content:center" onclick="App.go('login')">
-          تسجيل الدخول الآن →
-        </button>
-        ${d.role==='employee'?'<p class="tm tsm tc mt8">بعد الدخول، اذهب إلى "تقرير جديد" وابدأ بملء تقريرك</p>':''}
-      </div>
-    </div>
-  </div>`
-}
 
 /* ═══════════════════════════════════════════
    APP ROUTER
 ═══════════════════════════════════════════ */
 const App={
-  // URL-safe Base64 helpers for Arabic text
-  _enc(obj){
-    return btoa(unescape(encodeURIComponent(JSON.stringify(obj))))
-      .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+  init(){
+    const w=S.who();
+    if(!w){this.go('who');return;}
+    this.go(w.role);
   },
-  _dec(s){
-    try{return JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/')))));}
-    catch{return null;}
-  },
-
-  handleSetup(encoded){
-    const d=this._dec(encoded);
-    if(!d||!d.u||!d.p||!d.n||!d.r)return null;
-    const users=S.u();
-    const idx=users.findIndex(u=>u.username===d.u);
-    const entry={id:d.id||H.uid(),name:d.n,username:d.u,password:d.p,role:d.r,active:true,createdAt:new Date().toISOString()};
-    if(idx>=0){users[idx]={...users[idx],...entry};}
-    else{users.push(entry);}
-    S.su(users);
-    return d;
-  },
-
-  async init(){
-    await S.seed();
-    // Intercept setup links: index.html#setup/BASE64
-    const hash=location.hash;
-    if(hash.startsWith('#setup/')){
-      history.replaceState(null,'',location.pathname+location.search);
-      const result=this.handleSetup(hash.slice(7));
-      if(result){document.getElementById('app').innerHTML=setupDoneView(result);return;}
-      // Invalid link — just fall through to login
-      Toast.show('رابط الإعداد غير صحيح أو منتهي الصلاحية','err');
-    }
-    const s=Auth.sess();
-    if(!s){this.go('login');return}
-    if(s.role==='admin')this.go('admin');
-    else if(s.role==='manager')this.go('manager');
-    else this.go('employee');
-  },
-
   go(view){
     const app=document.getElementById('app');
-    if(view==='login'){
-      app.innerHTML=loginView();setupLogin();
+    if(view==='who'){
+      app.innerHTML=whoView();Who._role=null;
     }else if(view==='employee'){
-      if(!Auth.need('employee'))return;
       app.innerHTML=empShell();EC.renderForm();
     }else if(view==='manager'){
-      if(!Auth.need('manager'))return;
       app.innerHTML=mgrShell();MC.renderDash();
-    }else if(view==='admin'){
-      if(!Auth.need('admin'))return;
-      app.innerHTML=adminShell();AC.renderUsers();
     }
   }
 };
 
 App.init();
+
 </script>
 </body>
 </html>
