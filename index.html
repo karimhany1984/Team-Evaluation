@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>نظام تقييم الأداء الربع سنوي</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#0d2137">
+<!-- iOS "Add to Home Screen" support (separate from the Web Manifest — Safari does not read manifest.json for install behavior) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="تقييم الأداء">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" href="./icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -1182,46 +1190,80 @@ const MC={
   },
 
   // ── IMPORT ──
+  // Shared core: parses+validates+merges a JSON report string.
+  // Used by the manual file picker AND the PWA share-target auto-import flow.
+  // Returns true on success (already shows its own toasts either way).
+  importReportText(text){
+    try{
+      const data=JSON.parse(text);
+      if(data.type!=='pms_report'||!data.report||!data.report.employeeName){
+        Toast.show('الملف غير صحيح — تأكد أنه مُصدَّر من هذا النظام','err');return false;
+      }
+      const r={...data.report};
+      if(r.status==='draft'){r.status='submitted';}
+      if(!r.submittedAt)r.submittedAt=new Date().toISOString();
+      const rpts=S.r();
+      const idx=rpts.findIndex(x=>x.id===r.id);
+      if(idx>=0){
+        if(rpts[idx].status==='rated'){
+          Toast.show(`تقرير ${r.employeeName} مُقيَّم بالفعل ولا يمكن الاستبدال`,'wn');return false;
+        }
+        rpts[idx]=r;
+        Toast.show(`🔄 تم تحديث تقرير ${r.employeeName} — ${QRS[r.quarter]?.n||r.quarter} ${r.year}`,'ok');
+      }else{
+        rpts.push(r);
+        Toast.show(`✅ تم استيراد تقرير ${r.employeeName} — ${QRS[r.quarter]?.n||r.quarter} ${r.year}`,'ok');
+      }
+      S.sr(rpts);
+      setTimeout(()=>this.nav(this.cNav),200);
+      return true;
+    }catch(err){
+      Toast.show('خطأ في قراءة الملف — تأكد من صحة الملف','err');return false;
+    }
+  },
   importReport(){
     const inp=document.createElement('input');
     inp.type='file';inp.accept='.json';
     inp.onchange=e=>{
       const f=e.target.files[0];if(!f)return;
       const reader=new FileReader();
-      reader.onload=ev=>{
-        try{
-          const data=JSON.parse(ev.target.result);
-          // Validate structure
-          if(data.type!=='pms_report'||!data.report||!data.report.employeeName){
-            Toast.show('الملف غير صحيح — تأكد أنه مُصدَّر من هذا النظام','err');return;
-          }
-          const r={...data.report};
-          // Force submitted status (not draft)
-          if(r.status==='draft'){r.status='submitted';}
-          if(!r.submittedAt)r.submittedAt=new Date().toISOString();
-          const rpts=S.r();
-          const idx=rpts.findIndex(x=>x.id===r.id);
-          if(idx>=0){
-            if(rpts[idx].status==='rated'){
-              Toast.show(`تقرير ${r.employeeName} مُقيَّم بالفعل ولا يمكن الاستبدال`,'wn');return;
-            }
-            rpts[idx]=r;
-            Toast.show(`🔄 تم تحديث تقرير ${r.employeeName} — ${QRS[r.quarter]?.n||r.quarter} ${r.year}`,'ok');
-          }else{
-            rpts.push(r);
-            Toast.show(`✅ تم استيراد تقرير ${r.employeeName} — ${QRS[r.quarter]?.n||r.quarter} ${r.year}`,'ok');
-          }
-          S.sr(rpts);
-          setTimeout(()=>this.nav(this.cNav),200);
-        }catch(err){
-          Toast.show('خطأ في قراءة الملف — تأكد من صحة الملف','err');
-        }
-      };
+      reader.onload=ev=>{ this.importReportText(ev.target.result); };
       reader.readAsText(f);
     };
     inp.click();
   }
 };
+
+/* ═══════════════════════════════════════════
+   PWA: SHARE-TARGET AUTO-IMPORT
+   When a .json report is shared to this installed app (e.g. from WhatsApp
+   on Android), the service worker (sw.js) intercepts it, stores the file
+   content in the Cache Storage API under 'share-target-cache', then
+   redirects here with ?shared=1. On load, we pull it out, feed it through
+   the exact same validated import path as the manual picker, then clean up.
+   NOTE: this only fires if (a) the app was installed as a PWA and
+   (b) the browser supports the Web Share Target API as a receiver —
+   confirmed on Android Chrome; NOT confirmed on iOS Safari as of this
+   writing, so iPhone users should keep using the manual "استيراد" button.
+═══════════════════════════════════════════ */
+async function checkSharedReport(){
+  if(new URLSearchParams(location.search).get('shared')!=='1') return;
+  try{
+    const cache=await caches.open('share-target-cache');
+    const res=await cache.match('/shared-report');
+    if(res){
+      const text=await res.text();
+      await cache.delete('/shared-report');
+      // The merge itself is role-agnostic (writes straight to S.r()); it just
+      // reuses MC's validated import path so both flows behave identically.
+      MC.importReportText(text);
+    }
+  }catch(err){
+    console.warn('share-target import failed',err);
+  }
+  // clean the ?shared=1 param from the URL without reloading
+  history.replaceState({},'',location.pathname);
+}
 
 
 
@@ -1247,7 +1289,15 @@ const App={
 };
 
 App.init();
+checkSharedReport();
 
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('./sw.js').catch(err=>{
+      console.warn('Service worker registration failed — PWA install/share-target will not work:',err);
+    });
+  });
+}
 </script>
 </body>
 </html>
