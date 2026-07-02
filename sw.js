@@ -1,71 +1,117 @@
-// sw.js — service worker for the Performance Evaluation PWA
-//
-// Two jobs:
-// 1. Basic app-shell caching so the app can install and reopen offline.
-// 2. Intercept the POST navigation that the OS share sheet sends when a
-//    .json report is shared to this app (Web Share Target API). Since this
-//    is a static site with no backend, the "receiving" has to happen here,
-//    entirely on the visitor's device — we grab the file out of the POST
-//    body, stash it in Cache Storage, and redirect to a normal GET so the
-//    page can pick it up on load (see checkSharedReport() in index.html).
+const CACHE_NAME = 'pms-shell-v3';
+const BASE = '/Team-Evaluation/';
 
-const CACHE_NAME = 'pms-shell-v2';
-const BASE = '/hospital-form/';
-const SHELL_FILES = [
- BASE + 'index.html',
-  BASE +'manifest.json',
-BASE +  'icon-192.png',
-BASE +  'icon-512.png'
+const PRE_CACHE_ASSETS = [
+  BASE + 'index.html',
+  BASE + 'manifest.json',
+  BASE + 'icon-192.png',
+  BASE + 'icon-512.png',
+  BASE + 'icon-512-maskable.png'
 ];
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES))
+// Install: cache each asset individually so one missing/failed file
+// doesn't take down the whole precache (cache.addAll fails atomically).
+self.addEventListener('install', (e) => {
+  e.waitUntil(
+    caches.open(CACHE_NAME).then(async (cache) => {
+      for (const asset of PRE_CACHE_ASSETS) {
+        try {
+          const response = await fetch(asset);
+          if (response.ok) await cache.put(asset, response);
+        } catch (err) {
+          console.log('Failed to cache:', asset, err);
+        }
+      }
+    })
   );
   self.skipWaiting();
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
+// Activate: drop old shell caches, but never touch the share-target cache.
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.filter((k) => k !== CACHE_NAME && k !== 'share-target-cache')
-            .map((k) => caches.delete(k))
+        keys
+          .filter((k) => k !== CACHE_NAME && k !== 'share-target-cache')
+          .map((k) => caches.delete(k))
       )
     )
   );
   self.clients.claim();
 });
 
-self.addEventListener('fetch', (event) => {
-  const req = event.request;
-  const url = new URL(req.url);
+self.addEventListener('fetch', (e) => {
+  const url = new URL(e.request.url);
 
-  // ── Share target: intercept the POST the share sheet sends ──
-  if (req.method === 'POST' && url.pathname.endsWith('/index.html')) {
-    event.respondWith(handleShareTarget(event));
+  // Share target: check this BEFORE the GET-only filter, since shares
+  // arrive as POST.
+  if (e.request.method === 'POST' && url.pathname.includes('share-target')) {
+    e.respondWith(handleShareTarget(e.request));
     return;
   }
 
-  // ── Normal navigation/app-shell: cache-first, fall back to network ──
-  if (req.method === 'GET') {
-    event.respondWith(
-      caches.match(req).then((cached) => cached || fetch(req))
-    );
-  }
+  if (e.request.method !== 'GET') return;
+  if (!e.request.url.startsWith(self.location.origin)) return;
+
+  e.respondWith(
+    caches.match(e.request).then((cached) => {
+      if (cached) return cached;
+      return fetch(e.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse.clone()));
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          if (e.request.mode === 'navigate') {
+            return caches.match(BASE + 'index.html');
+          }
+          return new Response('Offline content not available', { status: 404, statusText: 'Not Found' });
+        });
+    })
+  );
 });
 
-async function handleShareTarget(event) {
+// Share Target handler — receives the shared .json report file.
+async function handleShareTarget(request) {
   try {
-    const formData = await event.request.formData();
+    const formData = await request.formData();
     const file = formData.get('reportfile');
-    const text = file ? await file.text() : '';
-    const cache = await caches.open('share-target-cache');
-    await cache.put('/shared-report', new Response(text));
+
+    if (file) {
+      const text = await file.text();
+      const sharedFileKey = self.location.origin + BASE + 'shared-report';
+      const cache = await caches.open('share-target-cache');
+      await cache.put(new Request(sharedFileKey), new Response(text, { headers: { 'Content-Type': 'application/json' } }));
+
+      // Foreground case: if the app is already open, tell it directly too,
+      // in addition to the cache (belt-and-suspenders — the redirect below
+      // covers the case where it isn't already open).
+      const clients = await self.clients.matchAll({ type: 'window' });
+      for (const client of clients) {
+        client.postMessage({ type: 'SHARED_REPORT', data: text });
+      }
+    }
   } catch (err) {
-    // If parsing the incoming share fails, we still redirect — the page
-    // will simply find nothing in the cache and do nothing, no crash.
-    console.warn('share-target handling failed', err);
+    console.error('[SW] Share target error:', err);
   }
-  return Response.redirect('./index.html?shared=1', 303);
+
+  return Response.redirect(BASE, 303);
 }
+
+// Optional update-management hooks (from the reference file) — lets a page
+// force an update or ask which cache version is active. Not required for
+// the core features you asked for, included for parity/future use.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+  if (event.data && event.data.type === 'GET_CACHE_NAME') {
+    const replyPort = event.ports && event.ports[0];
+    const payload = { type: 'CACHE_NAME', cacheName: CACHE_NAME, base: BASE };
+    if (replyPort) replyPort.postMessage(payload);
+    else if (event.source) event.source.postMessage(payload);
+  }
+});
