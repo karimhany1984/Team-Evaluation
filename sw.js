@@ -9,12 +9,13 @@
 //    body, stash it in Cache Storage, and redirect to a normal GET so the
 //    page can pick it up on load (see checkSharedReport() in index.html).
 
-const CACHE_NAME = 'pms-shell-v1';
+const CACHE_NAME = 'pms-shell-v2';
+const BASE = '/hospital-form/';
 const SHELL_FILES = [
-  './index.html',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
+ BASE + 'index.html',
+  BASE +'manifest.json',
+BASE +  'icon-192.png',
+BASE +  'icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {
