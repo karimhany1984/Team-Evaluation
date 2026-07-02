@@ -1237,32 +1237,40 @@ const MC={
 /* ═══════════════════════════════════════════
    PWA: SHARE-TARGET AUTO-IMPORT
    When a .json report is shared to this installed app (e.g. from WhatsApp
-   on Android), the service worker (sw.js) intercepts it, stores the file
-   content in the Cache Storage API under 'share-target-cache', then
-   redirects here with ?shared=1. On load, we pull it out, feed it through
-   the exact same validated import path as the manual picker, then clean up.
+   on Android), the service worker (sw.js) intercepts the POST to
+   /Team-Evaluation/share-target, stores the file content in Cache Storage
+   under the 'share-target-cache' bucket (absolute-URL key), then redirects
+   here. There is no ?shared=1 query flag anymore — sw.js just redirects to
+   BASE — so we check the cache unconditionally on every load instead.
+   sw.js ALSO sends the same content via postMessage to any already-open
+   tab, for the case where the app is already in the foreground; we listen
+   for that too, as a second path to the same importReportText() call.
    NOTE: this only fires if (a) the app was installed as a PWA and
    (b) the browser supports the Web Share Target API as a receiver —
    confirmed on Android Chrome; NOT confirmed on iOS Safari as of this
    writing, so iPhone users should keep using the manual "استيراد" button.
 ═══════════════════════════════════════════ */
 async function checkSharedReport(){
-  if(new URLSearchParams(location.search).get('shared')!=='1') return;
   try{
     const cache=await caches.open('share-target-cache');
-    const res=await cache.match('/shared-report');
+    const key=location.origin+'/Team-Evaluation/shared-report';
+    const res=await cache.match(key);
     if(res){
       const text=await res.text();
-      await cache.delete('/shared-report');
-      // The merge itself is role-agnostic (writes straight to S.r()); it just
-      // reuses MC's validated import path so both flows behave identically.
+      await cache.delete(key);
       MC.importReportText(text);
     }
   }catch(err){
-    console.warn('share-target import failed',err);
+    console.warn('share-target import check failed',err);
   }
-  // clean the ?shared=1 param from the URL without reloading
-  history.replaceState({},'',location.pathname);
+}
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.addEventListener('message',(event)=>{
+    if(event.data && event.data.type==='SHARED_REPORT' && event.data.data){
+      MC.importReportText(event.data.data);
+    }
+  });
 }
 
 
