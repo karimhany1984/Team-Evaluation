@@ -652,15 +652,13 @@ const EC={
     <!-- Actions -->
     ${!locked?`
     <div class="df jce g8 mb20 no-print">
-      <button class="btn btn-outline" onclick="EC.saveDraft()">💾 حفظ مسودة</button>
-      <button class="btn btn-gold btn-lg" onclick="EC.submit()">📤 إرسال التقرير</button>
+      <button class="btn btn-outline" onclick="EC.saveDraft()">💾 مسودة</button>
+      <button class="btn btn-gold btn-lg" onclick="EC.submit()">📤 حفظ التقرير</button>
     </div>`:
     `<div class="card mb20 no-print" style="border:2px dashed var(--gold);background:rgba(201,151,62,.04)">
       <div class="cb">
-        <p class="fw7 mb8" style="color:var(--navy);font-size:14px">📱 أرسل تقريرك للمشرف عبر واتساب</p>
-        <p class="tm tsm mb12">اضغط "إرسال عبر واتساب" — سيتم تنزيل الملف وستظهر لك تعليمات الإرسال خطوة بخطوة</p>
-        <div class="df fw g8">
-          <button class="btn btn-gold" onclick="EC.share()">📱 إرسال عبر واتساب</button>
+        
+          <button class="btn btn-gold btn-lg" onclick="EC.submit()">📤 حفظ التقرير</button>
          
           <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ طباعة</button>
         </div>
@@ -685,7 +683,7 @@ const EC={
           <td>${r.overallScore?`<strong style="color:${H.scoreClr(+r.overallScore)}">${r.overallScore}/5</strong>`:'<span class="tm">—</span>'}</td>
           <td>${r.status==='draft'?
             `<button class="btn btn-primary btn-sm" onclick="EC.openDraft('${r.id}')">تعديل</button>`:
-            `<div class="df g8"><button class="btn btn-outline btn-sm" onclick="EC.openView('${r.id}')">عرض</button><button class="btn btn-gold btn-sm" onclick="EC.shareById('${r.id}')" title="مشاركة عبر واتساب">📱</button></div>`}
+            `<div class="df g8"><button class="btn btn-outline btn-sm" onclick="EC.openView('${r.id}')">عرض</button></div>`}
           </td>
         </tr>`).join('')}</tbody>
       </table></div>`}
@@ -750,86 +748,6 @@ const EC={
     setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url)},150);
   },
 
-
-  async share(id){
-    const rpt=this._rptById(id);if(!rpt)return;
-    const json=this._pkg(rpt);
-    const fname=this._fname(rpt,'json');
-    // Step 1 — always download the file first (reliable on all devices)
-    this._dl(new Blob([json],{type:'application/json'}),fname);
-    // Step 2 — show clear WhatsApp instructions modal
-    this._showShareInstructions(fname);
-  },
-
-  _showShareInstructions(fname){
-    const steps=[
-      'افتح تطبيق واتساب',
-      'اختر محادثة المشرف',
-      'اضغط على أيقونة المرفق 📎',
-      'اختر <strong>ملف</strong> أو <strong>مستند</strong>',
-      `ابحث في مجلد <strong>التنزيلات</strong> عن:<br><code style="font-size:11px;background:#eef;padding:2px 6px;border-radius:4px;direction:ltr;display:inline-block;margin-top:3px">${fname}</code>`,
-      'اضغط إرسال ✅'
-    ];
-    openModal(`
-    <div class="mhdr">
-      <h3>📱 إرسال التقرير عبر واتساب</h3>
-      <button class="mcls" onclick="closeModal()">×</button>
-    </div>
-    <div class="mbody">
-      <div style="background:rgba(30,126,79,.08);border:1.5px solid rgba(30,126,79,.3);border-radius:var(--rs);padding:14px 16px;text-align:center;margin-bottom:18px">
-        <div style="font-size:32px;margin-bottom:4px">✅</div>
-        <p class="fw7" style="color:var(--ok);font-size:15px">تم تنزيل الملف بنجاح!</p>
-        <p class="tm tsm mt4">ابحث عنه في مجلد التنزيلات</p>
-      </div>
-      <p class="fw7 mb10" style="font-size:14px">الآن أرسله للمشرف خطوة بخطوة:</p>
-      <div style="display:flex;flex-direction:column;gap:8px">
-        ${steps.map((s,i)=>`
-        <div style="display:flex;align-items:flex-start;gap:10px;background:var(--bg);padding:10px 12px;border-radius:var(--rs)">
-          <span style="background:var(--navy);color:#fff;border-radius:50%;width:26px;height:26px;min-width:26px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800">${i+1}</span>
-          <span style="font-size:13.5px;line-height:1.5">${s}</span>
-        </div>`).join('')}
-      </div>
-    </div>
-    <div class="mfoot" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-      <a class="btn btn-gold" href="whatsapp://send" target="_blank" rel="noopener" onclick="EC._wa(event)">📱 افتح واتساب الآن</a>
-      <div class="df g8">
-        
-        <button class="btn btn-primary btn-sm" onclick="closeModal()">تم</button>
-      </div>
-    </div>`);
-  },
-
-  shareById(id){this.share(id)},
-
-  // Open WhatsApp reliably across Android/iOS/browsers
-  _wa(e){
-    if(e) e.preventDefault();
-    // Create a hidden anchor and programmatically click it —
-    // this bypasses the browser's pop-up blocker that often
-    // swallows custom-scheme navigation from existing <a> elements
-    const schemes = [
-      'whatsapp://send',   // standard scheme
-      'whatsapp://',       // fallback scheme
-    ];
-    let launched = false;
-    for(const s of schemes){
-      try{
-        const a = document.createElement('a');
-        a.href = s;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        launched = true;
-        break;
-      }catch(_){}
-    }
-    // If all schemes failed (desktop / WhatsApp not installed)
-    // open WhatsApp Web as last resort
-    if(!launched){
-      window.open('https://web.whatsapp.com/','_blank','noopener');
-    }
-  }
 };
 
 /* ═══════════════════════════════════════════
