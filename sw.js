@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pms-shell-v3';
+const CACHE_NAME = 'pms-shell-v4';
 const BASE = '/Team-Evaluation/';
 
 const PRE_CACHE_ASSETS = [
@@ -60,7 +60,13 @@ self.addEventListener('fetch', (e) => {
       return fetch(e.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse.clone()));
+            // Clone IMMEDIATELY, before doing anything else with networkResponse.
+            // Cloning after the original body may have started being read
+            // (e.g. once we return it below and the browser starts piping it)
+            // throws "Failed to execute 'clone' on 'Response': Response body
+            // is already used". Cloning first avoids that race entirely.
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, responseToCache));
           }
           return networkResponse;
         })
