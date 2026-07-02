@@ -2,8 +2,8 @@
   "name": "نظام تقييم الأداء الربع سنوي",
   "short_name": "تقييم الأداء",
   "description": "نظام تقييم الأداء الربع سنوي للموظفين",
-  "start_url": "./index.html",
-  "scope": "./",
+  "start_url": "/Team-Evaluation/index.html",
+  "scope": "/Team-Evaluation/",
   "display": "standalone",
   "orientation": "any",
   "dir": "rtl",
@@ -31,7 +31,7 @@
     }
   ],
   "share_target": {
-    "action": "./index.html",
+    "action": "/Team-Evaluation/share-target",
     "method": "POST",
     "enctype": "multipart/form-data",
     "params": {
