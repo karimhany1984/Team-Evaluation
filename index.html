@@ -652,7 +652,7 @@ const EC={
         <p class="tm tsm mb12">اضغط "إرسال عبر واتساب" — سيتم تنزيل الملف وستظهر لك تعليمات الإرسال خطوة بخطوة</p>
         <div class="df fw g8">
           <button class="btn btn-gold" onclick="EC.share()">📱 إرسال عبر واتساب</button>
-          <button class="btn btn-outline btn-sm" onclick="EC.exportJSON()">⬇️ تنزيل JSON</button>
+         
           <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ طباعة</button>
         </div>
         <p class="mt8 tsm" style="color:var(--ok)">💡 المشرف سيستورد ملف JSON في لوحته لمراجعة التقرير وتقييمه</p>
@@ -741,13 +741,6 @@ const EC={
     setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url)},150);
   },
 
-  exportJSON(id){
-    const rpt=this._rptById(id);if(!rpt)return;
-    this._dl(new Blob([this._pkg(rpt)],{type:'application/json'}),this._fname(rpt,'json'));
-    Toast.show('تم تنزيل ملف JSON — شاركه مع المشرف عبر واتساب','ok');
-  },
-
-
 
   async share(id){
     const rpt=this._rptById(id);if(!rpt)return;
@@ -791,7 +784,7 @@ const EC={
     <div class="mfoot" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
       <a class="btn btn-gold" href="whatsapp://send" target="_blank" rel="noopener" onclick="EC._wa(event)">📱 افتح واتساب الآن</a>
       <div class="df g8">
-        <button class="btn btn-outline btn-sm" onclick="EC.exportJSON();closeModal()">↻ تنزيل مجدداً</button>
+        
         <button class="btn btn-primary btn-sm" onclick="closeModal()">تم</button>
       </div>
     </div>`);
