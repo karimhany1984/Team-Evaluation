@@ -657,9 +657,8 @@ const EC={
     </div>`:
     `<div class="card mb20 no-print" style="border:2px dashed var(--gold);background:rgba(201,151,62,.04)">
       <div class="cb">
-        
-          <button class="btn btn-gold btn-lg" onclick="EC.submit()">📤 حفظ التقرير</button>
-         
+        <div class="df g8" style="flex-wrap:wrap">
+          <button class="btn btn-gold btn-lg" onclick="EC.share('${rpt.id}')">📥 تنزيل ملف JSON</button>
           <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ طباعة</button>
         </div>
         <p class="mt8 tsm" style="color:var(--ok)">💡 المشرف سيستورد ملف JSON في لوحته لمراجعة التقرير وتقييمه</p>
@@ -747,6 +746,15 @@ const EC={
     document.body.appendChild(a);a.click();
     setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url)},150);
   },
+
+  share(id){
+    const rpt=this._rptById(id);if(!rpt)return;
+    const json=this._pkg(rpt);
+    const fname=this._fname(rpt,'json');
+    this._dl(new Blob([json],{type:'application/json'}),fname);
+  },
+
+  shareById(id){this.share(id)},
 
 };
 
