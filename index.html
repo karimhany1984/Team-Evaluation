@@ -653,7 +653,6 @@ const EC={
         <div class="df fw g8">
           <button class="btn btn-gold" onclick="EC.share()">📱 إرسال عبر واتساب</button>
           <button class="btn btn-outline btn-sm" onclick="EC.exportJSON()">⬇️ تنزيل JSON</button>
-          <button class="btn btn-outline btn-sm" onclick="EC.exportMD()">📄 تنزيل نص مقروء</button>
           <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ طباعة</button>
         </div>
         <p class="mt8 tsm" style="color:var(--ok)">💡 المشرف سيستورد ملف JSON في لوحته لمراجعة التقرير وتقييمه</p>
@@ -748,12 +747,7 @@ const EC={
     Toast.show('تم تنزيل ملف JSON — شاركه مع المشرف عبر واتساب','ok');
   },
 
-  exportMD(id){
-    const rpt=this._rptById(id);if(!rpt)return;
-    // BOM for Arabic text files to display correctly
-    this._dl(new Blob(['\ufeff'+buildMD(rpt)],{type:'text/plain;charset=utf-8'}),this._fname(rpt,'md'));
-    Toast.show('تم تنزيل الملف النصي','ok');
-  },
+
 
   async share(id){
     const rpt=this._rptById(id);if(!rpt)return;
