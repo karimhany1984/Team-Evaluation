@@ -458,7 +458,7 @@ function buildMD(rpt){
   ln(`| **الربع** | ${q.n} |`);
   ln(`| **السنة** | ${rpt.year} |`);
   const sd=rpt.submittedAt?new Date(rpt.submittedAt).toLocaleDateString('ar-EG',{year:'numeric',month:'long',day:'numeric'}):'—';
-  ln(`| **تاريخ الإرسال** | ${sd} |`);
+  ln(`| **تاريخ الحفظ** | ${sd} |`);
   const stMap={rated:'مُقيَّم ✅',submitted:'مُرسَل 📤',draft:'مسودة 📝'};
   ln(`| **الحالة** | ${stMap[rpt.status]||rpt.status} |`);
   ln('');ln('---');ln('');
@@ -675,7 +675,7 @@ const EC={
       <div class="card-hdr"><h3>📋 تقاريري</h3></div>
       ${!rpts.length?`<div class="empty"><div class="ei">📭</div><h4>لا توجد تقارير بعد</h4><p>ابدأ بإدخال تقريرك من "تقرير جديد"</p></div>`:`
       <div class="tw"><table>
-        <thead><tr><th>الربع</th><th>السنة</th><th>الإنشاء</th><th>الإرسال</th><th>الحالة</th><th>التقييم الكلي</th><th>إجراء</th></tr></thead>
+        <thead><tr><th>الربع</th><th>السنة</th><th>الإنشاء</th><th>الحفظ</th><th>الحالة</th><th>التقييم الكلي</th><th>إجراء</th></tr></thead>
         <tbody>${rpts.map(r=>`<tr>
           <td><strong>${QRS[r.quarter]?.n||r.quarter}</strong></td>
           <td>${r.year}</td><td class="tm tsm">${H.fd(r.createdAt)}</td><td class="tm tsm">${H.fd(r.submittedAt)}</td>
@@ -719,15 +719,15 @@ const EC={
 
   submit(){
     const rpt=this.collect();if(!rpt)return;
-    confirmDlg('هل تريد إرسال التقرير؟ لن تتمكن من تعديله بعد الإرسال.',()=>{
+    confirmDlg('هل تريد حفظ التقرير؟ لن تتمكن من تعديله بعد الحفظ.',()=>{
       rpt.status='submitted';rpt.submittedAt=new Date().toISOString();
       const rs=S.r().filter(r=>r.id!==rpt.id);rs.push(rpt);S.sr(rs);
-      Toast.show('تم إرسال التقرير بنجاح 🎉','ok');
+      Toast.show('تم حفظ التقرير بنجاح 🎉','ok');
       this.renderForm();
       const s=S.who();
       const cnt=S.r().filter(r=>r.employeeId===s.id).length;
       const tmy=document.getElementById('tMy');if(tmy)tmy.textContent=`📋 تقاريري (${cnt})`;
-    },'📤 إرسال التقرير','btn-gold');
+    },'📤 حفظ التقرير','btn-gold');
   },
 
   // ── EXPORT / SHARE ──
@@ -808,7 +808,7 @@ const MC={
       </div>
       ${!sub.length?`<div class="empty"><div class="ei">📭</div><h4>لا توجد تقارير مُرسَلة</h4></div>`:`
       <div class="tw"><table>
-        <thead><tr><th>الموظف</th><th>تاريخ الإرسال</th><th>الحالة</th><th>الكلي</th><th>إجراء</th></tr></thead>
+        <thead><tr><th>الموظف</th><th>تاريخ الحفظ</th><th>الحالة</th><th>الكلي</th><th>إجراء</th></tr></thead>
         <tbody>${sub.slice(-6).reverse().map(r=>`<tr>
           <td><strong>${r.employeeName}</strong></td>
           <td class="tm tsm">${H.fd(r.submittedAt)}</td>
@@ -948,7 +948,7 @@ const MC={
     const s=[...rpts].sort((a,b)=>new Date(b.submittedAt||b.createdAt)-new Date(a.submittedAt||a.createdAt));
     if(!s.length)return'<div class="empty"><div class="ei">📭</div><h4>لا توجد تقارير</h4></div>';
     return`<div class="tw"><table>
-      <thead><tr><th>الموظف</th><th>الربع</th><th>السنة</th><th>الإرسال</th><th>الحالة</th>
+      <thead><tr><th>الموظف</th><th>الربع</th><th>السنة</th><th>الحفظ</th><th>الحالة</th>
         <th>الانضباط</th><th>المأموريات</th><th>الإنجازات</th><th>الكلي</th><th>إجراء</th></tr></thead>
       <tbody>${s.map(r=>`<tr>
         <td><strong>${r.employeeName}</strong></td>
