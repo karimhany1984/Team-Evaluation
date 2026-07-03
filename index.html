@@ -208,7 +208,8 @@ tbody td{padding:9px 13px;vertical-align:middle}
   .mth-body.d3,.mth-body.d2,.act-body{grid-template-columns:1fr}
 }
 ::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:var(--muted)}
-@media(max-width:768px){.sidebar{display:none}.g2,.g3{grid-template-columns:1fr}.cg{grid-template-columns:1fr}}
+@media(max-width:768px){.sidebar{display:none}.g2,.g3{grid-template-columns:1fr}.cg{grid-template-columns:1fr}.mobile-back{display:inline-flex!important}}
+.mobile-back{display:none}
 @media print{.hdr,.sidebar,.btn,.tabs,.fb,.no-print{display:none!important}body{background:#fff}.content{padding:0}}
 </style>
 </head>
@@ -904,7 +905,10 @@ const MC={
     const emps=[...new Map(S.r().map(r=>[r.employeeId,{id:r.employeeId,name:r.employeeName}])).values()];
     document.getElementById('mc').innerHTML=`
     <div class="df jcb aic mb16 fw g8">
-      <div class="pt mb0">📋 التقارير</div>
+      <div class="df aic g8">
+        <button class="btn btn-outline btn-sm mobile-back no-print" onclick="MC.nav('dash')">⬅ لوحة البيانات</button>
+        <div class="pt mb0">📋 التقارير</div>
+      </div>
       <button class="btn btn-gold no-print" onclick="MC.importReport()">📥 استيراد تقرير JSON</button>
     </div>
     <div class="card mb16" style="border:2px dashed var(--gold);background:rgba(201,151,62,.04)">
@@ -977,7 +981,10 @@ const MC={
     const emps=[...new Map(S.r().map(r=>[r.employeeId,{id:r.employeeId,name:r.employeeName}])).values()];
     const all=S.r();
     document.getElementById('mc').innerHTML=`
-    <div class="pt">👥 الموظفون</div>
+    <div class="df aic g8 mb16">
+      <button class="btn btn-outline btn-sm mobile-back no-print" onclick="MC.nav('dash')">⬅ لوحة البيانات</button>
+      <div class="pt mb0">👥 الموظفون</div>
+    </div>
     ${!emps.length?`<div class="card"><div class="empty"><div class="ei">👥</div><h4>لا توجد تقارير مُستوردة بعد</h4><p>استورد تقارير الموظفين من صفحة التقارير</p></div></div>`:`
     <div class="card"><div class="tw"><table>
       <thead><tr><th>اسم الموظف</th><th>تقارير مُرسَلة</th><th>آخر تقرير</th><th>متوسط التقييم</th></tr></thead>
