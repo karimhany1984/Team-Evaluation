@@ -801,7 +801,6 @@ const MC={
       <div class="sc g"><div class="si">⭐</div><div><div class="sv">${avg||'—'}</div><div class="sl">متوسط التقييم الكلي (/5)</div></div></div>
     </div>
     <div class="cg">
-      <div class="card"><div class="card-hdr"><h3>حالة التقارير</h3></div><div class="cb" style="height:220px"><canvas id="cS"></canvas></div></div>
       <div class="card"><div class="card-hdr"><h3>توزيع التقييمات</h3></div><div class="cb" style="height:220px"><canvas id="cR"></canvas></div></div>
     </div>
     <div class="cg">
@@ -834,21 +833,6 @@ const MC={
     const f={family:'Tajawal',size:11};
     const months=QRS[this.sQ].ms;
     const sub=qr.filter(r=>r.status!=='draft');
-
-    // Chart 1: Status donut
-    const c1=document.getElementById('cS');
-    if(c1){
-      const nd=Math.max(0,emps.length-qr.length);
-      const dr=qr.filter(r=>r.status==='draft').length;
-      const su=qr.filter(r=>r.status==='submitted').length;
-      const rt=qr.filter(r=>r.status==='rated').length;
-      this._charts.push(new Chart(c1,{type:'doughnut',
-        data:{labels:['لم يُرسَل','مسودة','مُرسَل','مُقيَّم'],
-          datasets:[{data:[nd,dr,su,rt],backgroundColor:['#dce4f0','#6b7a8d','#2563b0','#1e7e4f'],borderWidth:0}]},
-        options:{responsive:true,maintainAspectRatio:false,
-          plugins:{legend:{position:'bottom',labels:{font:f,padding:10}}}}
-      }));
-    }
 
     // Chart 2: Score distribution
     const c2=document.getElementById('cR');
