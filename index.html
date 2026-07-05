@@ -389,13 +389,17 @@ function empShell(){
   </div>
   <div class="df aic g8">
     <div class="hdr-user">👤 <span>${w.name}</span></div>
+    <button class="btn btn-ghost btn-sm" id="btnCheckUpdate" onclick="checkForUpdates()">🔄 تحقق من التحديثات</button>
     <button class="btn btn-ghost btn-sm" onclick="Who.change()">✏️ تغيير</button>
   </div>
 </div>
 <div class="content" style="max-width:960px;margin:0 auto">
-  <div class="tabs">
-    <button class="tab active" id="tNew" onclick="EC.tab('new')">📝 تقرير جديد</button>
-    <button class="tab" id="tMy" onclick="EC.tab('my')">📋 تقاريري (${cnt})</button>
+  <div class="df jcb aic fw g8 mb12">
+    <div class="tabs" style="flex:1;margin-bottom:0">
+      <button class="tab active" id="tNew" onclick="EC.tab('new')">📝 تقرير جديد</button>
+      <button class="tab" id="tMy" onclick="EC.tab('my')">📋 تقاريري (${cnt})</button>
+    </div>
+    <button class="btn btn-outline btn-sm no-print" onclick="EC.importReport()" title="استيراد تقرير JSON خاص بك (تم تصديره مسبقًا)">📤 استيراد تقريري</button>
   </div>
   <div id="tabBody"></div>
 </div>`}
@@ -409,6 +413,7 @@ function mgrShell(){
   </div>
   <div class="df aic g8">
     <div class="hdr-user">👔 <span>${w.name}</span></div>
+    <button class="btn btn-ghost btn-sm" id="btnCheckUpdate" onclick="checkForUpdates()">🔄 تحقق من التحديثات</button>
     <button class="btn btn-ghost btn-sm" onclick="Who.change()">✏️ تغيير</button>
   </div>
 </div>
@@ -756,6 +761,73 @@ const EC={
   },
 
   shareById(id){this.share(id)},
+
+  // ── IMPORT (employee's own reports only) ──
+  // Lets an employee re-import a previously-exported JSON of THEIR OWN
+  // report (e.g. restoring from a backup, or continuing on another
+  // device) and re-open it as an editable draft so it can be resubmitted.
+  //
+  // Ownership check caveat, stated plainly: this app has no real login /
+  // accounts (see the S.who() comment — identity is just a locally-typed
+  // name + a randomly generated local id). So this check can only compare
+  // the report's stored employeeName against the currently-selected name.
+  // It stops accidental cross-imports (e.g. opening the wrong file), but
+  // it is NOT a security boundary — anyone who selects the matching name
+  // in the "من أنت؟" screen could import a file with that name in it.
+  // If real per-person access control matters here, this app would need
+  // an actual authentication layer, which it currently does not have.
+  importReport(){
+    const inp=document.createElement('input');
+    inp.type='file';inp.accept='.json';
+    inp.onchange=e=>{
+      const f=e.target.files[0];if(!f)return;
+      const reader=new FileReader();
+      reader.onload=ev=>{ this.importReportText(ev.target.result); };
+      reader.readAsText(f);
+    };
+    inp.click();
+  },
+
+  importReportText(text){
+    const s=S.who();
+    let data;
+    try{
+      data=JSON.parse(text);
+    }catch(err){
+      Toast.show('خطأ في قراءة الملف — تأكد من صحة الملف','err');return false;
+    }
+    if(data.type!=='pms_report'||!data.report||!data.report.employeeName){
+      Toast.show('الملف غير صحيح — تأكد أنه مُصدَّر من هذا النظام','err');return false;
+    }
+    const incoming=data.report;
+    if((incoming.employeeName||'').trim()!==(s.name||'').trim()){
+      Toast.show(`⛔ هذا التقرير يخص "${incoming.employeeName}" — لا يمكنك استيراده وأنت مسجّل باسم "${s.name}"`,'err');
+      return false;
+    }
+    const wasRated=incoming.status==='rated';
+    const doImport=()=>{
+      const r={...incoming};
+      r.employeeId=s.id;      // إعادة ربط التقرير بهويتك المحلية الحالية
+      r.employeeName=s.name;
+      r.status='draft';       // يُفتح كمسودة قابلة للتعديل
+      r.submittedAt=null;
+      const rpts=S.r().filter(x=>x.id!==r.id);
+      rpts.push(r);
+      S.sr(rpts);
+      this.cQ=r.quarter;this.cY=r.year;
+      Toast.show('✅ تم استيراد التقرير كمسودة — يمكنك تعديله وإعادة إرساله الآن','ok');
+      this.tab('new');
+    };
+    if(wasRated){
+      confirmDlg(
+        'هذا التقرير كان مُقيَّمًا مسبقًا من المشرف. استيراده الآن سيحوّله إلى مسودة قابلة للتعديل، وسيفقد تقييم المشرف المحفوظ محليًا لديك (سيحتاج لتقييمه من جديد بعد إعادة الإرسال). هل تريد الاستمرار؟',
+        doImport,'استيراد وتحويل لمسودة','btn-gold'
+      );
+    }else{
+      doImport();
+    }
+    return true;
+  },
 
 };
 
@@ -1223,6 +1295,76 @@ if('serviceWorker' in navigator){
       console.warn('Service worker registration failed — PWA install/share-target will not work:',err);
     });
   });
+}
+
+/* ═══════════════════════════════════════════
+   PWA: MANUAL "CHECK FOR UPDATES" BUTTON
+   navigator.serviceWorker.register() already checks for a new sw.js on
+   every load automatically in most browsers, so this button is mainly
+   useful when someone wants to force it right now (e.g. right after you
+   told them you pushed a fix) instead of waiting for the browser's own
+   background check.
+   Flow: reg.update() re-fetches sw.js -> if the bytes differ, the browser
+   installs it into "waiting" state -> we tell it to skipWaiting() ->
+   'controllerchange' fires -> we reload the page so index.html/manifest/
+   icons etc. are all re-fetched fresh too.
+   Caveat I can't fully verify from here: exact update() behavior can
+   differ slightly across browsers/versions, so treat the timing (the
+   1.2s fallback check below) as a practical compromise, not a guarantee —
+   if you notice it not catching updates on a specific browser, that's
+   worth testing directly rather than trusting this comment.
+═══════════════════════════════════════════ */
+let _swRefreshing=false;
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(_swRefreshing)return;
+    _swRefreshing=true;
+    window.location.reload();
+  });
+}
+
+let _swUpdateChecking=false;
+async function checkForUpdates(){
+  if(!('serviceWorker' in navigator)){
+    Toast.show?.('⚠️ هذا المتصفح لا يدعم التحديث التلقائي','wn');
+    return;
+  }
+  if(_swUpdateChecking)return;
+  _swUpdateChecking=true;
+  const btn=document.getElementById('btnCheckUpdate');
+  const oldTxt=btn?btn.textContent:null;
+  if(btn){btn.disabled=true;btn.textContent='⏳ جارٍ التحقق...';}
+  try{
+    const reg=await navigator.serviceWorker.getRegistration();
+    if(!reg){
+      Toast.show?.('❌ لم يتم العثور على Service Worker مُسجَّل لهذا التطبيق','err');
+      return;
+    }
+    await reg.update();
+    if(reg.waiting){
+      reg.waiting.postMessage({type:'SKIP_WAITING'});
+      Toast.show?.('📥 تم العثور على تحديث — يتم تطبيقه الآن...','ok');
+      return;
+    }
+    // Some browsers need a beat after update() before "waiting" is populated.
+    setTimeout(()=>{
+      if(reg.waiting){
+        reg.waiting.postMessage({type:'SKIP_WAITING'});
+        Toast.show?.('📥 تم العثور على تحديث — يتم تطبيقه الآن...','ok');
+      }else{
+        Toast.show?.('✅ أنت تستخدم آخر نسخة من التطبيق','ok');
+      }
+    },1200);
+  }catch(err){
+    console.warn('update check failed',err);
+    Toast.show?.('⚠️ تعذّر التحقق من التحديثات — تحقق من اتصالك بالإنترنت','err');
+  }finally{
+    setTimeout(()=>{
+      _swUpdateChecking=false;
+      const b=document.getElementById('btnCheckUpdate');
+      if(b){b.disabled=false;b.textContent=oldTxt||'🔄 تحقق من التحديثات';}
+    },1300);
+  }
 }
 
 /* ═══════════════════════════════════════════
