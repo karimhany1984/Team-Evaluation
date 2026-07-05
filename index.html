@@ -445,6 +445,13 @@ function whoView(){return`
           </button>
         </div>
       </div>
+      <div class="fg mb0" id="wPassWrap" style="display:none;margin-top:14px">
+        <label class="fl" style="font-size:14px">كلمة مرور المشرف</label>
+        <div class="pw-wrap">
+          <input type="password" class="fc" id="wPass" placeholder="أدخل كلمة المرور" autocomplete="off">
+          <button type="button" class="pw-eye" id="wPassEye" onclick="Who.togglePw()">👁️</button>
+        </div>
+      </div>
       <p class="lerr" id="wErr" style="display:none;background:rgba(192,57,43,.07);border:1px solid rgba(192,57,43,.2);border-radius:var(--rs);color:var(--err);padding:9px 13px;font-size:13px;margin-top:14px"></p>
       <button class="btn btn-primary btn-lg" style="width:100%;justify-content:center;margin-top:16px" onclick="Who.submit()">
         ابدأ →
@@ -504,18 +511,46 @@ function mgrShell(){
 /* ═══════════════════════════════════════════
    WHO CONTROLLER (identity, no passwords)
 ═══════════════════════════════════════════ */
+const MGR_NAME='داليا خميس احمد رجب';
+const MGR_PASS='3062026';
+
 const Who={
   _role:null,
   pick(role){
     this._role=role;
     document.querySelectorAll('.role-btn').forEach(b=>b.classList.remove('selected'));
     document.getElementById(role==='employee'?'rEmp':'rMgr').classList.add('selected');
+    const pw=document.getElementById('wPassWrap');
+    if(pw)pw.style.display=role==='manager'?'block':'none';
+    const err=document.getElementById('wErr');
+    if(err)err.style.display='none';
+  },
+  togglePw(){
+    const inp=document.getElementById('wPass');
+    const eye=document.getElementById('wPassEye');
+    if(!inp)return;
+    const show=inp.type==='password';
+    inp.type=show?'text':'password';
+    if(eye)eye.textContent=show?'🙈':'👁️';
   },
   submit(){
     const name=document.getElementById('wName')?.value.trim();
     const err=document.getElementById('wErr');
-    if(!name){err.style.display='block';err.textContent='يرجى إدخال اسمك الكامل';return;}
-    if(!this._role){err.style.display='block';err.textContent='يرجى اختيار دورك';return;}
+    const showErr=msg=>{err.style.display='block';err.textContent=msg};
+    if(!name){showErr('يرجى إدخال اسمك الكامل');return;}
+    if(!this._role){showErr('يرجى اختيار دورك');return;}
+    if(this._role==='manager'){
+      if(name!==MGR_NAME){
+        showErr('دور "مشرف" مقصور على داليا خميس احمد رجب فقط — يرجى اختيار "موظف"');
+        return;
+      }
+      const pass=document.getElementById('wPass')?.value||'';
+      if(pass!==MGR_PASS){
+        showErr('كلمة المرور غير صحيحة');
+        return;
+      }
+    }
+    err.style.display='none';
     S.swho({id:'w_'+Date.now(),name,role:this._role});
     App.go(this._role);
   },
