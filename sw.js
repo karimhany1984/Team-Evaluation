@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pms-shell-v10';
+const CACHE_NAME = 'pms-shell-v11';
 const BASE = '/Team-Evaluation/';
 
 const PRE_CACHE_ASSETS = [
